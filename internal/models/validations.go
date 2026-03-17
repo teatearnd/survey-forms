@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func ValidateSurvey(s Survey) error {
+func ValidateSurveyAdding(s Survey) error {
 	if strings.TrimSpace(s.Name) == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
