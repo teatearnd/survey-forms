@@ -13,6 +13,7 @@ type Survey struct {
 	Description    string     `json:"description"`
 	Questions_list []Question `json:"questions_list"`
 	CreatorID      uuid.UUID  `json:"creator_id"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type QuestionType int
@@ -29,6 +30,7 @@ type Question struct {
 	Choices     []Answer_choice `json:"choices,omitempty"`
 	IsMandatory bool            `json:"is_mandatory"`
 	ID          uuid.UUID       `json:"id"`
+	SurveyID    uuid.UUID       `json:"survey_id"`
 }
 
 // 3rd member of a Question struct

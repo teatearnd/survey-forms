@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"time"
 
 	"example.com/m/internal/models"
 	"github.com/google/uuid"
@@ -24,7 +25,8 @@ func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {
 
 // Creates a new survey using a struct Survey
 func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
-	new_survey := models.Survey{}
+	time := time.Now()
+	new_survey := models.Survey{CreatedAt: time} // ?
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 

@@ -3,7 +3,9 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 
+	"example.com/m/internal/models"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -15,7 +17,7 @@ CREATE TABLE IF NOT EXISTS surveys (
 );
 
 CREATE TABLE IF NOT EXISTS questions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY AUTOINCREMENT,
     survey_id TEXT,
     content TEXT,
     FOREIGN KEY(survey_id) REFERENCES surveys(id)
@@ -34,7 +36,7 @@ func OpenDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	fmt.Println("established connection to db")
+	log.Printf("established connection to db")
 	return db, nil
 }
 
@@ -49,4 +51,33 @@ func InitSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to turn on fkeys at %w", err)
 	}
 	return nil
+}
+
+func InsertSurvey(h *sql.DB, survey *models.Survey) error {
+	tx, err := h.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	const inserting_surveys = `
+	INSERT INTO surveys(id, title, created_at)
+	VALUES (?, ?, ?);
+	`
+	const inserting_questions = `
+	INSERT INTO questions(id, survey_id, content)
+	VALUES (?, ?, ?);
+	`
+
+	_, err = tx.Exec(inserting_surveys, survey.ID, survey.Name, survey.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed at inserting surveys %s into the db: %w", survey.ID, err)
+	}
+	for _, j := range survey.Questions_list {
+		_, err = tx.Exec(inserting_questions, j.ID, j.SurveyID, j.Description)
+		if err != nil {
+			return fmt.Errorf("failed while inserting question %s %v", j.ID, err)
+		}
+	}
+	return tx.Commit()
 }
