@@ -3,11 +3,10 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"slices"
-	"sync"
 	"time"
 
 	"example.com/m/internal/models"
@@ -16,9 +15,7 @@ import (
 )
 
 type Handler struct {
-	Mu     *sync.RWMutex
-	TempDB *[]models.Survey
-	DB     *sql.DB
+	DB *sql.DB
 }
 
 func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {
@@ -77,20 +74,15 @@ func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json request", http.StatusBadRequest)
 		return
 	}
-	found := false
-	// temporary lookup at db (slice)
-	h.Mu.Lock()
-	defer h.Mu.Unlock()
-	for i, j := range *h.TempDB {
-		if called_survey.ID == j.ID {
-			// found corresponding and deleting
-			*h.TempDB = slices.Delete(*h.TempDB, i, i+1)
-			found = true
-			break
+
+	err = repository.DeleteSurveyByID(h.DB, called_survey.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrSurveyNotFound) {
+			http.Error(w, "survey not found", http.StatusNotFound)
+			return
 		}
-	}
-	if found == false {
-		http.Error(w, "Couldn't find the survey", http.StatusNotFound)
+		log.Printf("DeleteSurvey: failed on DeleteSurveyByID: %v", err)
+		http.Error(w, "failed to delete a survey", http.StatusInternalServerError)
 		return
 	}
 
@@ -103,6 +95,7 @@ func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
 		http.Error(w, "failed to encode a response", http.StatusInternalServerError)
+		return
 	}
 }
 

@@ -2,10 +2,12 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 
 	"example.com/m/internal/models"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -83,9 +85,37 @@ func InsertSurvey(h *sql.DB, survey *models.Survey) error {
 	return tx.Commit()
 }
 
+var ErrSurveyNotFound = errors.New("survey not found")
+
+func DeleteSurveyByID(h *sql.DB, id uuid.UUID) error {
+	const deleteSurvey = `
+	DELETE FROM surveys
+	WHERE id = ?;
+	`
+	tx, err := h.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(deleteSurvey, id)
+	if err != nil {
+		return fmt.Errorf("failed at deleting survey %s: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed reading delete result: %w", err)
+	}
+	if affected == 0 {
+		return ErrSurveyNotFound
+	}
+
+	return tx.Commit()
+}
+
 func ListSurveys(h *sql.DB) ([]models.Survey, error) {
 	const searchSurvey = `
-	SELECT id, name, description, created_at FROM surveys
+	SELECT id, name, description, created_at FROM surveys;
 	`
 	rows, err := h.Query(searchSurvey)
 	if err != nil {

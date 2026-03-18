@@ -3,14 +3,10 @@ package main
 import (
 	"log"
 	"net/http"
-	"sync"
 
 	"example.com/m/internal/handlers"
-	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
 )
-
-var tempDB = []models.Survey{}
 
 func main() {
 	mux := http.NewServeMux()
@@ -24,7 +20,7 @@ func main() {
 		log.Fatalf("failed at db initialization: %v", err)
 	}
 
-	def_handler := &handlers.Handler{Mu: &sync.RWMutex{}, DB: db, TempDB: &tempDB}
+	def_handler := &handlers.Handler{DB: db}
 
 	mux.HandleFunc("/", def_handler.DefaultHandler)
 
