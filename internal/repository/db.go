@@ -12,12 +12,13 @@ import (
 const initSchema = `
 CREATE TABLE IF NOT EXISTS surveys (
     id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
+    name TEXT NOT NULL,
+	description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS questions (
-    id TEXT PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     survey_id TEXT,
     content TEXT,
     FOREIGN KEY(survey_id) REFERENCES surveys(id)

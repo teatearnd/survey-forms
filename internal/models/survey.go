@@ -12,7 +12,6 @@ type Survey struct {
 	Name           string     `json:"name"`
 	Description    string     `json:"description"`
 	Questions_list []Question `json:"questions_list"`
-	CreatorID      uuid.UUID  `json:"creator_id"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 

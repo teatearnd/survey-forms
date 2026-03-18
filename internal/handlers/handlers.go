@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"example.com/m/internal/models"
+	"example.com/m/internal/repository"
 	"github.com/google/uuid"
 )
 
@@ -23,10 +24,9 @@ func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello World!")
 }
 
-// Creates a new survey using a struct Survey
 func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
-	time := time.Now()
-	new_survey := models.Survey{CreatedAt: time} // ?
+	currentDate := time.Now()
+	new_survey := models.Survey{}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 
@@ -35,15 +35,19 @@ func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON request", http.StatusBadRequest)
 		return
 	}
+	new_survey.CreatedAt = currentDate
+
 	err = models.ValidateSurveyAdding(new_survey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	h.Mu.Lock()
-	*h.TempDB = append(*h.TempDB, new_survey)
-	h.Mu.Unlock()
+	err = repository.InsertSurvey(h.DB, &new_survey)
+	if err != nil {
+		http.Error(w, "failed on db inserting", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -100,12 +104,12 @@ func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSurveys(w http.ResponseWriter, r *http.Request) {
 	h.Mu.RLock()
+	defer h.Mu.RUnlock()
 	if len(*h.TempDB) == 0 {
 		http.Error(w, "nothing to display", http.StatusNotFound)
 		return
 	}
 	surveys := *h.TempDB
-	h.Mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
