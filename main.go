@@ -3,12 +3,18 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"example.com/m/internal/handlers"
 	"example.com/m/internal/repository"
 )
 
 func main() {
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable must be set")
+	}
+
 	mux := http.NewServeMux()
 	db, err := repository.OpenDB()
 	if err != nil {
@@ -20,19 +26,39 @@ func main() {
 		log.Fatalf("failed at db initialization: %v", err)
 	}
 
-	def_handler := &handlers.Handler{DB: db}
+	def_handler := &handlers.Handler{
+		DB:        db,
+		JWTSecret: []byte(jwtSecret),
+	}
 
 	mux.HandleFunc("/", def_handler.DefaultHandler)
 
-	// Single path for /surveys
+	// Auth routes (public)
+	mux.HandleFunc("/users/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		def_handler.Register(w, r)
+	})
+
+	mux.HandleFunc("/users/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		def_handler.Login(w, r)
+	})
+
+	// Single path for /surveys (protected)
 	mux.HandleFunc("/surveys", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			def_handler.CreateSurvey(w, r)
+			def_handler.AuthMiddleware(def_handler.CreateSurvey)(w, r)
 		case http.MethodGet:
-			def_handler.GetSurveys(w, r)
+			def_handler.AuthMiddleware(def_handler.GetSurveys)(w, r)
 		case http.MethodDelete:
-			def_handler.DeleteSurvey(w, r)
+			def_handler.AuthMiddleware(def_handler.DeleteSurvey)(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -41,11 +67,11 @@ func main() {
 	mux.HandleFunc("/surveys/", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			def_handler.CreateSurvey(w, r)
+			def_handler.AuthMiddleware(def_handler.CreateSurvey)(w, r)
 		case http.MethodGet:
-			def_handler.GetSurveys(w, r)
+			def_handler.AuthMiddleware(def_handler.GetSurveys)(w, r)
 		case http.MethodDelete:
-			def_handler.DeleteSurvey(w, r)
+			def_handler.AuthMiddleware(def_handler.DeleteSurvey)(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -56,3 +82,5 @@ func main() {
 		log.Fatalf("server failed: %v", err)
 	}
 }
+
+

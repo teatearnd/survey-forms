@@ -14,7 +14,8 @@ import (
 )
 
 type Handler struct {
-	DB *sql.DB
+	DB        *sql.DB
+	JWTSecret []byte
 }
 
 func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {

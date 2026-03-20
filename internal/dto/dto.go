@@ -67,3 +67,27 @@ func GetSurveys(response models.Survey) ResponseGetSurveys {
 	}
 	return r
 }
+
+// User auth DTOs
+
+type RequestRegisterUser struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type RequestLoginUser struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type ResponseLoginUser struct {
+	Token string `json:"token"`
+}
+
+func ToUser(req RequestRegisterUser) models.User {
+	return models.User{
+		ID:        uuid.New(),
+		Username:  req.Username,
+		CreatedAt: time.Now(),
+	}
+}

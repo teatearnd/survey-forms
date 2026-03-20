@@ -9,10 +9,17 @@ import (
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
 
 const initSchema = `
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS surveys (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -154,4 +161,42 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	}
 
 	return res, nil
+}
+
+var ErrUserNotFound = errors.New("user not found")
+var ErrUserAlreadyExists = errors.New("username already exists")
+
+func InsertUser(h *sql.DB, user models.User) (models.User, error) {
+	const insertUser = `
+	INSERT INTO users(id, username, password_hash, created_at)
+	VALUES (?, ?, ?, ?);
+	`
+	_, err := h.Exec(insertUser, user.ID, user.Username, user.PasswordHash, user.CreatedAt)
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			return models.User{}, ErrUserAlreadyExists
+		}
+		return models.User{}, fmt.Errorf("failed to insert user: %w", err)
+	}
+	return user, nil
+}
+
+func FindUserByUsername(h *sql.DB, username string) (models.User, error) {
+	const findUser = `
+	SELECT id, username, password_hash, created_at FROM users WHERE username = ?;
+	`
+	var user models.User
+	err := h.QueryRow(findUser, username).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		return models.User{}, fmt.Errorf("failed to find user: %w", err)
+	}
+	return user, nil
+}
+
+func isUniqueConstraintError(err error) bool {
+	var sqliteErr sqlite3.Error
+	return errors.As(err, &sqliteErr) && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique
 }
