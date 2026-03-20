@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -19,11 +18,18 @@ type Handler struct {
 }
 
 func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello World!")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := "There is nothing here."
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
-	new_survey := models.Survey{}
+	new_survey := dto.RequestCreateSurvey{} // dto
 	decoder := json.NewDecoder(r.Body)
 
 	decoder.DisallowUnknownFields()
@@ -33,12 +39,17 @@ func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = models.ValidateSurveyAdding(new_survey)
+	if decoder.More() {
+		http.Error(w, "multiple json objects/trailing junk", http.StatusBadRequest)
+		return
+	}
+
+	dtoResponse := dto.ToSurvey(new_survey)
+	err = models.ValidateSurveyAdding(dtoResponse)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dtoResponse := dto.InternalCreateSurvey(new_survey)
 	res, err := repository.InsertSurvey(h.DB, dtoResponse)
 	if err != nil {
 		log.Printf("CreateSurvey: insert failed: %v", err)
@@ -65,11 +76,16 @@ func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 	}
 	called_survey := delete{}
 	decoder := json.NewDecoder(r.Body)
-
 	decoder.DisallowUnknownFields()
 	err := decoder.Decode(&called_survey)
 	if err != nil {
 		http.Error(w, "invalid json request", http.StatusBadRequest)
+		log.Printf("%v", err)
+		return
+	}
+
+	if decoder.More() {
+		http.Error(w, "multiple json objects/trailing junk", http.StatusBadRequest)
 		return
 	}
 

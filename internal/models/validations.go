@@ -14,6 +14,9 @@ func ValidateSurveyAdding(s Survey) error {
 	}
 
 	for i, q := range s.Questions_list {
+		if strings.TrimSpace(q.Description) == "" {
+			return fmt.Errorf("questions_list[%d] has no description", i)
+		}
 		if q.Type != MultipleChoice && q.Type != TextBased {
 			return fmt.Errorf("questions_list[%d] has an incorrect question type", i)
 		}

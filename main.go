@@ -12,7 +12,7 @@ func main() {
 	mux := http.NewServeMux()
 	db, err := repository.OpenDB()
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed at db open: %v", err)
 	}
 	defer db.Close()
 	err = repository.InitSchema(db)
@@ -24,8 +24,21 @@ func main() {
 
 	mux.HandleFunc("/", def_handler.DefaultHandler)
 
-	// Single path for /surveys; dispatch by HTTP method inside handler
+	// Single path for /surveys
 	mux.HandleFunc("/surveys", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			def_handler.CreateSurvey(w, r)
+		case http.MethodGet:
+			def_handler.GetSurveys(w, r)
+		case http.MethodDelete:
+			def_handler.DeleteSurvey(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/surveys/", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			def_handler.CreateSurvey(w, r)

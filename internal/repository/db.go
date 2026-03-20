@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
@@ -24,12 +23,14 @@ CREATE TABLE IF NOT EXISTS surveys (
 CREATE TABLE IF NOT EXISTS questions (
     id TEXT PRIMARY KEY,
     survey_id TEXT,
-    content TEXT,
-    FOREIGN KEY(survey_id) REFERENCES surveys(id)
+    description TEXT,
+	type TEXT,
+	is_mandatory BOOL,
+    FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
 );`
 
 func OpenDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "./my.db")
+	db, err := sql.Open("sqlite3", "./my.db?_foreign_keys=1")
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -58,7 +59,7 @@ func InitSchema(db *sql.DB) error {
 	return nil
 }
 
-func InsertSurvey(h *sql.DB, survey dto.RequestCreateSurvey) (models.Survey, error) {
+func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	tx, err := h.Begin()
 	if err != nil {
 		return models.Survey{}, err
@@ -70,17 +71,15 @@ func InsertSurvey(h *sql.DB, survey dto.RequestCreateSurvey) (models.Survey, err
 	VALUES (?, ?, ?, ?);
 	`
 	const inserting_questions = `
-	INSERT INTO questions(id, survey_id, content)
-	VALUES (?, ?, ?);
+	INSERT INTO questions(id, survey_id, description, type, is_mandatory)
+	VALUES (?, ?, ?, ?, ?);
 	`
-	newID := uuid.New()
-	currentDate := time.Now()
-	_, err = tx.Exec(inserting_surveys, newID, survey.Name, survey.Description, currentDate)
+	_, err = tx.Exec(inserting_surveys, survey.ID, survey.Name, survey.Description, survey.CreatedAt)
 	if err != nil {
-		return models.Survey{}, fmt.Errorf("failed at inserting surveys %s into the db: %w", newID, err)
+		return models.Survey{}, fmt.Errorf("failed at inserting surveys %s into the db: %w", survey.ID, err)
 	}
 	for _, j := range survey.Questions_list {
-		_, err = tx.Exec(inserting_questions, j.ID, j.SurveyID, j.Description)
+		_, err = tx.Exec(inserting_questions, j.ID, j.SurveyID, j.Description, j.Type, j.IsMandatory)
 		if err != nil {
 			return models.Survey{}, fmt.Errorf("failed while inserting question %s %w", j.ID, err)
 		}
@@ -91,10 +90,11 @@ func InsertSurvey(h *sql.DB, survey dto.RequestCreateSurvey) (models.Survey, err
 	}
 
 	created := models.Survey{
-		ID:          newID,
-		Name:        survey.Name,
-		Description: survey.Description,
-		CreatedAt:   currentDate,
+		ID:             survey.ID,
+		Name:           survey.Name,
+		Description:    survey.Description,
+		Questions_list: survey.Questions_list,
+		CreatedAt:      survey.CreatedAt,
 	}
 	return created, nil
 }
@@ -127,7 +127,7 @@ func DeleteSurveyByID(h *sql.DB, id uuid.UUID) error {
 	return tx.Commit()
 }
 
-func ListSurveys(h *sql.DB) ([]models.Survey, error) {
+func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	const searchSurvey = `
 	SELECT id, name, description, created_at FROM surveys;
 	`
@@ -137,14 +137,15 @@ func ListSurveys(h *sql.DB) ([]models.Survey, error) {
 	}
 	defer rows.Close()
 
-	res := []models.Survey{}
+	res := []dto.ResponseGetSurveys{}
 	for rows.Next() {
 		var temp models.Survey
 		err = rows.Scan(&temp.ID, &temp.Name, &temp.Description, &temp.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed when preparing results: %w", err)
 		}
-		res = append(res, temp)
+		response := dto.GetSurveys(temp)
+		res = append(res, response)
 	}
 
 	err = rows.Err()
