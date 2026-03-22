@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -30,11 +32,15 @@ CREATE TABLE IF NOT EXISTS questions (
 );`
 
 func OpenDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "./my.db?_foreign_keys=1")
+	db, err := sqlx.Connect("sqlite3", "./my.db?_foreign_keys=1")
 	if err != nil {
 		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
+
+	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(10)
+	db.SetConnMaxIdleTime(time.Second * 30)
 
 	err = db.Ping()
 	if err != nil {
@@ -43,7 +49,7 @@ func OpenDB() (*sql.DB, error) {
 	}
 
 	log.Printf("established connection to db")
-	return db, nil
+	return db.DB, nil
 }
 
 func InitSchema(db *sql.DB) error {
@@ -64,7 +70,14 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	if err != nil {
 		return models.Survey{}, err
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		} else {
+			_ = tx.Commit()
+		}
+	}()
 
 	const inserting_surveys = `
 	INSERT INTO surveys(id, name, description, created_at)
@@ -86,7 +99,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	}
 	err = tx.Commit()
 	if err != nil {
-		return models.Survey{}, err
+		return models.Survey{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	created := models.Survey{
