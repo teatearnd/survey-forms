@@ -127,5 +127,43 @@ func (h *Handler) GetSurveys(w http.ResponseWriter, r *http.Request) {
 	err = json.NewEncoder(w).Encode(res)
 	if err != nil {
 		http.Error(w, "failed to encode", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetSingleSurvey(w http.ResponseWriter, r *http.Request) {
+	type getsingle struct {
+		ID uuid.UUID `json:"id"`
+	}
+	called_id := getsingle{}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&called_id)
+	if err != nil {
+		http.Error(w, "failed to decode the request", http.StatusBadRequest)
+		return
+	}
+
+	if decoder.More() {
+		http.Error(w, "multiple json objects/trailing junk", http.StatusBadRequest)
+		return
+	}
+
+	res, err := repository.RetrieveSurvey(h.DB, called_id.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrSurveyNotFound) {
+			http.Error(w, "survey not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed while interacting with the database", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	err = json.NewEncoder(w).Encode(res)
+	if err != nil {
+		http.Error(w, "failed to encode a response", http.StatusInternalServerError)
+		return
 	}
 }

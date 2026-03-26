@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS questions (
 	type TEXT,
 	is_mandatory BOOL,
     FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS choices (
+	id TEXT PRIMARY KEY,
+	question_id TEXT,
+	description TEXT,
+	FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
 );`
 
 func OpenDB() (*sql.DB, error) {
@@ -87,6 +94,10 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	INSERT INTO questions(id, survey_id, description, type, is_mandatory)
 	VALUES (?, ?, ?, ?, ?);
 	`
+	const inserting_choices = `
+	INSERT INTO choices(id, question_id, description)
+	VALUES (?, ?, ?); `
+
 	_, err = tx.Exec(inserting_surveys, survey.ID, survey.Name, survey.Description, survey.CreatedAt)
 	if err != nil {
 		return models.Survey{}, fmt.Errorf("failed at inserting surveys %s into the db: %w", survey.ID, err)
@@ -96,10 +107,12 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 		if err != nil {
 			return models.Survey{}, fmt.Errorf("failed while inserting question %s %w", j.ID, err)
 		}
-	}
-	err = tx.Commit()
-	if err != nil {
-		return models.Survey{}, fmt.Errorf("failed to commit transaction: %w", err)
+		for _, c := range j.Choices {
+			_, err = tx.Exec(inserting_choices, c.ID, j.ID, c.Description)
+			if err != nil {
+				return models.Survey{}, fmt.Errorf("failed while inserting answer-choices: %w", err)
+			}
+		}
 	}
 
 	created := models.Survey{
@@ -109,6 +122,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 		Questions_list: survey.Questions_list,
 		CreatedAt:      survey.CreatedAt,
 	}
+
 	return created, nil
 }
 
@@ -164,6 +178,28 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	err = rows.Err()
 	if err != nil {
 		return nil, fmt.Errorf("iteration error on reading surveys: %w", err)
+	}
+
+	return res, nil
+}
+
+func RetrieveSurvey(h *sql.DB, id uuid.UUID) (models.Survey, error) {
+	const searchSurvey = `
+	SELECT id, name, description, created_at FROM surveys
+	WHERE id = ?;
+	`
+	res := models.Survey{}
+	err := h.QueryRow(searchSurvey, id).Scan(
+		&res.ID,
+		&res.Name,
+		&res.Description,
+		&res.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.Survey{}, ErrSurveyNotFound
+		}
+		return models.Survey{}, fmt.Errorf("failed when parsing a survey: %w", err)
 	}
 
 	return res, nil
