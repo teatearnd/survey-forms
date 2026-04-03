@@ -9,7 +9,6 @@ import (
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -183,10 +182,18 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	return res, nil
 }
 
-func RetrieveSurvey(h *sql.DB, id uuid.UUID) (models.Survey, error) {
+func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	const searchSurvey = `
 	SELECT id, name, description, created_at FROM surveys
 	WHERE id = ?;
+	`
+	const searchQuestion = `
+	SELECT description, type, is_mandatory, id FROM questions
+	WHERE survey_id = ?;
+	`
+	const searchOptions = `
+	SELECT id, description FROM choices
+	WHERE question_id = ?
 	`
 	res := models.Survey{}
 	err := h.QueryRow(searchSurvey, id).Scan(
@@ -197,10 +204,65 @@ func RetrieveSurvey(h *sql.DB, id uuid.UUID) (models.Survey, error) {
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return models.Survey{}, ErrSurveyNotFound
+			return dto.RequestSurvey{}, ErrSurveyNotFound
 		}
-		return models.Survey{}, fmt.Errorf("failed when parsing a survey: %w", err)
+		return dto.RequestSurvey{}, fmt.Errorf("failed when parsing a survey: %w", err)
+	}
+	response := dto.RequestSurvey{
+		ID:             res.ID,
+		Name:           res.Name,
+		Description:    res.Description,
+		CreatedAt:      res.CreatedAt,
+		Questions_list: []dto.RequestQuestion{},
 	}
 
-	return res, nil
+	rows, err := h.Query(searchQuestion, res.ID)
+	if err != nil {
+		return dto.RequestSurvey{}, fmt.Errorf("failed to read results: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		question := models.Question{}
+		err = rows.Scan(&question.Description, &question.Type, &question.IsMandatory, &question.ID)
+		if err != nil {
+			return dto.RequestSurvey{}, fmt.Errorf("failed to read questions: %w", err)
+		}
+
+		choices := []models.Answer_choice{}
+
+		cRows, err := h.Query(searchOptions, question.ID)
+		if err != nil {
+			return dto.RequestSurvey{}, fmt.Errorf("failed reading options: %w", err)
+		}
+		for cRows.Next() {
+			choice := models.Answer_choice{}
+			err = cRows.Scan(&choice.ID, &choice.Description)
+			if err != nil {
+				cRows.Close()
+				return dto.RequestSurvey{}, fmt.Errorf("failed on reading options: %w", err)
+			}
+			choices = append(choices, choice)
+		}
+		if err = cRows.Err(); err != nil {
+			cRows.Close()
+			return dto.RequestSurvey{}, fmt.Errorf("iteration error on questions: %w", err)
+		}
+		cRows.Close()
+
+		// new dto with no survey_id present
+		dto_question := dto.RequestQuestion{
+			Description: question.Description,
+			Type:        question.Type,
+			Choices:     question.Choices,
+			IsMandatory: question.IsMandatory,
+		}
+		response.Questions_list = append(response.Questions_list, dto_question)
+	}
+
+	if err = rows.Err(); err != nil {
+		return dto.RequestSurvey{}, fmt.Errorf("iteration error: %w", err)
+	}
+
+	return response, nil
 }

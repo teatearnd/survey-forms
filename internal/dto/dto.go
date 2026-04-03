@@ -7,10 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type RequestDeleteSurvey struct {
-	ID uuid.UUID `json:"id"`
-}
-
 type RequestLookupSurvey struct {
 	ID uuid.UUID `json:"id"`
 }
@@ -21,15 +17,25 @@ type RequestCreateSurvey struct {
 	Questions_list []RequestCreateQuestion `json:"questions_list"`
 }
 
-type RequestCreateQuestion struct {
-	Description string                `json:"description"`
-	Type        models.QuestionType   `json:"type"`
-	Choices     []RequestCreateChoice `json:"choices,omitempty"`
-	IsMandatory bool                  `json:"is_mandatory"`
+type RequestSurvey struct {
+	ID             uuid.UUID         `json:"id"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	Questions_list []RequestQuestion `json:"questions_list"`
+	CreatedAt      time.Time         `json:"created_at"`
+}
+type RequestQuestion struct {
+	Description string                 `json:"description"`
+	Type        models.QuestionType    `json:"type"`
+	Choices     []models.Answer_choice `json:"choices,omitempty"`
+	IsMandatory bool                   `json:"is_mandatory"`
 }
 
-type RequestCreateChoice struct {
-	Description string `json:"description"`
+type RequestCreateQuestion struct {
+	Description string              `json:"description"`
+	Type        models.QuestionType `json:"type"`
+	Choices     []models.Question   `json:"choices,omitempty"`
+	IsMandatory bool                `json:"is_mandatory"`
 }
 
 func ToSurvey(req RequestCreateSurvey) models.Survey {

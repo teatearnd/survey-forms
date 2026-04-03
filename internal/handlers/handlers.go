@@ -121,22 +121,15 @@ func (h *Handler) GetSurveys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetSingleSurvey(w http.ResponseWriter, r *http.Request) {
-	called_id := dto.RequestLookupSurvey{}
-
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&called_id)
+	survey := chi.URLParam(r, "surveyId")
+	err := models.ValidateUuid(survey)
 	if err != nil {
-		http.Error(w, "failed to decode the request", http.StatusBadRequest)
+		http.Error(w, "bad uuid", http.StatusBadRequest)
 		return
 	}
 
-	if decoder.More() {
-		http.Error(w, "multiple json objects/trailing junk", http.StatusBadRequest)
-		return
-	}
+	res, err := repository.RetrieveSurvey(h.DB, survey)
 
-	res, err := repository.RetrieveSurvey(h.DB, called_id.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrSurveyNotFound) {
 			http.Error(w, "survey not found", http.StatusNotFound)

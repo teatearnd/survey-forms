@@ -29,7 +29,7 @@ func main() {
 	r.Get("/", def_handler.DefaultHandler)
 	r.Get("/surveys", def_handler.GetSurveys)
 	r.Post("/surveys", def_handler.CreateSurvey)
-	r.Get("/survey", def_handler.GetSingleSurvey)
+	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
 	r.Delete("/survey/{surveyId}", def_handler.DeleteSurvey)
 
 	log.Printf("starting server on :8080")
