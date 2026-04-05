@@ -26,7 +26,7 @@ func main() {
 	def_handler := &handlers.Handler{DB: db}
 
 	r.Use(middleware.Logger)
-	r.Get("/", def_handler.DefaultHandler)
+	r.Get("/", handlers.DefaultHandler)
 	r.Get("/surveys", def_handler.GetSurveys)
 	r.Post("/surveys", def_handler.CreateSurvey)
 	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
