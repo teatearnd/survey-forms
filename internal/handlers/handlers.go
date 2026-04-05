@@ -17,7 +17,7 @@ type Handler struct {
 	DB *sql.DB
 }
 
-func (h *Handler) DefaultHandler(w http.ResponseWriter, r *http.Request) {
+func DefaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := "There is nothing here."
