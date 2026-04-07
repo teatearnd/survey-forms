@@ -76,14 +76,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	if err != nil {
 		return models.Survey{}, err
 	}
-
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		} else {
-			_ = tx.Commit()
-		}
-	}()
+	defer tx.Rollback()
 
 	const inserting_surveys = `
 	INSERT INTO surveys(id, name, description, created_at)
@@ -122,7 +115,11 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 		CreatedAt:      survey.CreatedAt,
 	}
 
-	return created, nil
+	if err = tx.Commit(); err != nil {
+		return models.Survey{}, fmt.Errorf("transaction commit failed: %w", err)
+	}
+
+	return created, tx.Commit()
 }
 
 var ErrSurveyNotFound = errors.New("survey not found")
