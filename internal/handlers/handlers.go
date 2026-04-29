@@ -8,8 +8,8 @@ import (
 	"net/http"
 
 	"example.com/m/internal/dto"
-	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
+	"example.com/m/internal/validations"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -33,14 +33,14 @@ func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 
 	decoder.DisallowUnknownFields()
-	err := models.DecodeStrict(decoder, &new_survey)
+	err := validations.DecodeStrict(decoder, &new_survey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	dtoResponse := dto.ToSurvey(new_survey)
-	err = models.ValidateSurveyAdding(dtoResponse)
+	err = validations.ValidateSurveyAdding(dtoResponse)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -67,7 +67,7 @@ func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 	survey := chi.URLParam(r, "surveyId")
-	err := models.ValidateUuid(survey)
+	err := validations.ValidateUuid(survey)
 	if err != nil {
 		http.Error(w, "bad uuid", http.StatusBadRequest)
 		return
@@ -117,7 +117,7 @@ func (h *Handler) GetSurveys(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSingleSurvey(w http.ResponseWriter, r *http.Request) {
 	survey := chi.URLParam(r, "surveyId")
-	err := models.ValidateUuid(survey)
+	err := validations.ValidateUuid(survey)
 	if err != nil {
 		http.Error(w, "bad uuid", http.StatusBadRequest)
 		return

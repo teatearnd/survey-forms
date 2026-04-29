@@ -1,4 +1,4 @@
-package models
+package validations
 
 import (
 	"encoding/json"
@@ -6,10 +6,11 @@ import (
 	"io"
 	"strings"
 
+	"example.com/m/internal/models"
 	"github.com/google/uuid"
 )
 
-func ValidateSurveyAdding(s Survey) error {
+func ValidateSurveyAdding(s models.Survey) error {
 	if strings.TrimSpace(s.Name) == "" {
 		return fmt.Errorf("survey name cannot be empty")
 	}
@@ -21,13 +22,13 @@ func ValidateSurveyAdding(s Survey) error {
 		if strings.TrimSpace(q.Description) == "" {
 			return fmt.Errorf("questions_list[%d] has no description", i)
 		}
-		if q.Type != MultipleChoice && q.Type != TextBased {
+		if q.Type != models.MultipleChoice && q.Type != models.TextBased {
 			return fmt.Errorf("questions_list[%d] has an incorrect question type", i)
 		}
-		if q.Type == MultipleChoice && len(q.Choices) == 0 {
+		if q.Type == models.MultipleChoice && len(q.Choices) == 0 {
 			return fmt.Errorf("questions_list[%d] with property MultipleChoice, but no choices present", i)
 		}
-		if q.Type == TextBased && len(q.Choices) > 0 {
+		if q.Type == models.TextBased && len(q.Choices) > 0 {
 			return fmt.Errorf("questions_list[%d] with property TextBased is not allowed to have choices", i)
 		}
 

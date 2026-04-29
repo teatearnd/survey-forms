@@ -1,14 +1,16 @@
-package models
+package validations
 
 import (
 	"testing"
+
+	"example.com/m/internal/models"
 )
 
 func TestValidateSurvey(t *testing.T) {
-	baseSurvey := Survey{
+	baseSurvey := models.Survey{
 		Name:        "Normal name",
 		Description: "Normal description",
-		Questions_list: []Question{
+		Questions_list: []models.Question{
 			{
 				Description: "Normal Description of a Question",
 				Type:        1,
@@ -18,28 +20,28 @@ func TestValidateSurvey(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		mutate  func(*Survey)
+		mutate  func(*models.Survey)
 		wantErr string
 	}{
 		"valid survey": {
-			mutate:  func(s *Survey) {},
+			mutate:  func(s *models.Survey) {},
 			wantErr: "",
 		},
 		"survey name is blank": {
-			mutate: func(s *Survey) {
+			mutate: func(s *models.Survey) {
 				s.Name = " "
 			},
 			wantErr: "survey name cannot be empty",
 		},
 		"no question survey": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{}
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{}
 			},
 			wantErr: "no questions found",
 		},
 		"question description is blank": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{
 					{
 						Description: " ",
 					},
@@ -48,8 +50,8 @@ func TestValidateSurvey(t *testing.T) {
 			wantErr: "questions_list[0] has no description",
 		},
 		"question type is not of type 0 or 1": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{
 					{
 						Description: "Normal Description of a question",
 						Type:        3,
@@ -59,24 +61,24 @@ func TestValidateSurvey(t *testing.T) {
 			wantErr: "questions_list[0] has an incorrect question type",
 		},
 		"question is multiple choice but has no choices": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{
 					{
 						Description: "Normal Description of a question",
 						Type:        0,
-						Choices:     []Answer_choice{},
+						Choices:     []models.Answer_choice{},
 					},
 				}
 			},
 			wantErr: "questions_list[0] with property MultipleChoice, but no choices present",
 		},
 		"question is text based but choices are present": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{
 					{
 						Description: "Normal Description of a question",
 						Type:        1,
-						Choices: []Answer_choice{
+						Choices: []models.Answer_choice{
 							{
 								Description: "Answer Choice",
 							},
@@ -87,12 +89,12 @@ func TestValidateSurvey(t *testing.T) {
 			wantErr: "questions_list[0] with property TextBased is not allowed to have choices",
 		},
 		"question is multiple choice but description of a choice is blank": {
-			mutate: func(s *Survey) {
-				s.Questions_list = []Question{
+			mutate: func(s *models.Survey) {
+				s.Questions_list = []models.Question{
 					{
 						Description: "Normal Description of a question",
 						Type:        0,
-						Choices: []Answer_choice{
+						Choices: []models.Answer_choice{
 							{
 								Description: "Next question will be blank",
 							},
