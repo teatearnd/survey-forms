@@ -119,7 +119,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 		return models.Survey{}, fmt.Errorf("transaction commit failed: %w", err)
 	}
 
-	return created, tx.Commit()
+	return created, nil
 }
 
 var ErrSurveyNotFound = errors.New("survey not found")
