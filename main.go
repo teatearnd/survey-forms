@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
+	"example.com/m/internal/auth"
 	"example.com/m/internal/handlers"
 	"example.com/m/internal/repository"
 
@@ -24,6 +26,17 @@ func main() {
 	}
 
 	def_handler := &handlers.Handler{DB: db}
+	authInit := auth.Settings{
+		Secret:   os.Getenv("JWT_SECRET"),
+		Issuer:   os.Getenv("JWT_ISSUER"),
+		Audience: os.Getenv("JWT_AUDIENCE"),
+	}
+	if err := auth.Init(authInit); err != nil {
+		log.Fatalf("JWT init failed: %v", err)
+	}
+	if err := auth.ValidateConfig(); err != nil {
+		log.Fatalf("JWT config invalid: %v", err)
+	}
 
 	r.Use(middleware.Logger)
 	r.Get("/", handlers.DefaultHandler)
@@ -31,6 +44,13 @@ func main() {
 	r.Post("/survey", def_handler.CreateSurvey)
 	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
 	r.Delete("/survey/{surveyId}", def_handler.DeleteSurvey)
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.AuthMiddleware)
+		r.Post("/survey/{surveyId}/submissions", def_handler.CreateSubmission)
+		r.Get("/survey/{surveyId}/submissions", def_handler.GetSubmissionsBySurvey)
+		r.Get("/users/{userId}/submissions", def_handler.GetSubmissionsByUser)
+	})
 
 	log.Printf("starting server on :8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {

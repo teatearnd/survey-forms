@@ -81,3 +81,28 @@ func GetSurveys(response models.Survey) ResponseGetSurveys {
 	}
 	return r
 }
+
+type RequestCreateSubmission struct {
+	Answers []RequestCreateAnswer `json:"answers"`
+}
+
+type RequestCreateAnswer struct {
+	QuestionID   uuid.UUID  `json:"question_id"`
+	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
+	TextResponse string     `json:"text_response,omitempty"`
+}
+
+type ResponseSubmission struct {
+	ID          uuid.UUID        `json:"id"`
+	SurveyID    uuid.UUID        `json:"survey_id"`
+	UserID      uuid.UUID        `json:"user_id"`
+	Answers     []ResponseAnswer `json:"answers"`
+	SubmittedAt time.Time        `json:"submitted_at"`
+}
+
+type ResponseAnswer struct {
+	ID           uuid.UUID  `json:"id"`
+	QuestionID   uuid.UUID  `json:"question_id"`
+	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
+	TextResponse string     `json:"text_response,omitempty"`
+}

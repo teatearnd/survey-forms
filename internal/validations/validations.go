@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"github.com/google/uuid"
 )
@@ -60,5 +61,59 @@ func DecodeStrict(decoder *json.Decoder, v any) error {
 			return fmt.Errorf("unexpected trailing data after JSON request: %w", err)
 		}
 	}
+	return nil
+}
+
+func ValidateSubmissionRequest(req dto.RequestCreateSubmission, meta map[uuid.UUID]models.QuestionMeta) error {
+	if len(req.Answers) == 0 {
+		return fmt.Errorf("no answers provided")
+	}
+
+	answered := make(map[uuid.UUID]struct{}, len(req.Answers))
+	for i, ans := range req.Answers {
+		if ans.QuestionID == uuid.Nil {
+			return fmt.Errorf("answers[%d] has an empty question_id", i)
+		}
+		qm, ok := meta[ans.QuestionID]
+		if !ok {
+			return fmt.Errorf("answers[%d] references an unknown question", i)
+		}
+		if _, exists := answered[ans.QuestionID]; exists {
+			return fmt.Errorf("answers[%d] duplicates a question", i)
+		}
+
+		switch qm.Type {
+		case models.MultipleChoice:
+			if ans.ChoiceID == nil {
+				return fmt.Errorf("answers[%d] missing choice_id for multiple choice", i)
+			}
+			if _, ok := qm.ChoiceIDs[*ans.ChoiceID]; !ok {
+				return fmt.Errorf("answers[%d] has invalid choice_id", i)
+			}
+			if strings.TrimSpace(ans.TextResponse) != "" {
+				return fmt.Errorf("answers[%d] must not include text_response for multiple choice", i)
+			}
+		case models.TextBased:
+			if ans.ChoiceID != nil {
+				return fmt.Errorf("answers[%d] must not include choice_id for text questions", i)
+			}
+			if strings.TrimSpace(ans.TextResponse) == "" {
+				return fmt.Errorf("answers[%d] missing text_response", i)
+			}
+		default:
+			return fmt.Errorf("answers[%d] has invalid question type", i)
+		}
+
+		answered[ans.QuestionID] = struct{}{}
+	}
+
+	for id, q := range meta {
+		if q.IsMandatory {
+			if _, ok := answered[id]; !ok {
+				return fmt.Errorf("missing mandatory answer for question %s", id)
+			}
+		}
+	}
+
 	return nil
 }

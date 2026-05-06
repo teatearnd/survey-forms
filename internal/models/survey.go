@@ -43,12 +43,20 @@ type Submission struct {
 	SurveyID uuid.UUID `json:"survey_id"`
 	UserID   uuid.UUID `json:"user_id"`
 	Answers  []Answer  `json:"answers"`
-	Time     time.Time `json:"time"`
+	Time     time.Time `json:"submitted_at"`
 }
 
 type Answer struct {
-	ID           uuid.UUID `json:"id"`
-	QuestionID   uuid.UUID `json:"question_id"`
-	SubmissionID uuid.UUID `json:"submission_id"`
-	TextResponse string    `json:"text_response"`
+	ID           uuid.UUID  `json:"id"`
+	QuestionID   uuid.UUID  `json:"question_id"`
+	SubmissionID uuid.UUID  `json:"submission_id"`
+	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
+	TextResponse string     `json:"text_response"`
+}
+
+type QuestionMeta struct {
+	ID          uuid.UUID
+	Type        QuestionType
+	IsMandatory bool
+	ChoiceIDs   map[uuid.UUID]struct{}
 }

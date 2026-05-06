@@ -9,6 +9,7 @@ import (
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -35,7 +36,31 @@ CREATE TABLE IF NOT EXISTS choices (
 	question_id TEXT,
 	description TEXT,
 	FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
-);`
+);
+
+CREATE TABLE IF NOT EXISTS submissions (
+	id TEXT PRIMARY KEY,
+	survey_id TEXT NOT NULL,
+	user_id TEXT NOT NULL,
+	submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS answers (
+	id TEXT PRIMARY KEY,
+	submission_id TEXT NOT NULL,
+	question_id TEXT NOT NULL,
+	choice_id TEXT,
+	text_response TEXT,
+	FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+	FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE,
+	FOREIGN KEY(choice_id) REFERENCES choices(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_survey_id ON submissions(survey_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_answers_submission_id ON answers(submission_id);
+`
 
 func OpenDB() (*sql.DB, error) {
 	db, err := sqlx.Connect("sqlite3", "./my.db?_foreign_keys=1")
@@ -262,6 +287,260 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	}
 
 	return response, nil
+}
+
+func SurveyExists(h *sql.DB, id string) (bool, error) {
+	const query = `
+	SELECT 1 FROM surveys
+	WHERE id = ?
+	LIMIT 1;
+	`
+	var exists int
+	if err := h.QueryRow(query, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check survey existence: %w", err)
+	}
+	return true, nil
+}
+
+func GetSurveyQuestionMeta(h *sql.DB, surveyID string) (map[uuid.UUID]models.QuestionMeta, error) {
+	const queryQuestions = `
+	SELECT id, type, is_mandatory FROM questions
+	WHERE survey_id = ?;
+	`
+	const queryChoices = `
+	SELECT id FROM choices
+	WHERE question_id = ?;
+	`
+	rows, err := h.Query(queryQuestions, surveyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read survey questions: %w", err)
+	}
+	defer rows.Close()
+
+	res := make(map[uuid.UUID]models.QuestionMeta)
+	for rows.Next() {
+		var idStr string
+		var qType models.QuestionType
+		var isMandatory bool
+		if err := rows.Scan(&idStr, &qType, &isMandatory); err != nil {
+			return nil, fmt.Errorf("failed to scan questions: %w", err)
+		}
+		qid, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid question id in db: %w", err)
+		}
+		meta := models.QuestionMeta{
+			ID:          qid,
+			Type:        qType,
+			IsMandatory: isMandatory,
+			ChoiceIDs:   map[uuid.UUID]struct{}{},
+		}
+		cRows, err := h.Query(queryChoices, idStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read choices: %w", err)
+		}
+		for cRows.Next() {
+			var choiceIDStr string
+			if err := cRows.Scan(&choiceIDStr); err != nil {
+				cRows.Close()
+				return nil, fmt.Errorf("failed to scan choices: %w", err)
+			}
+			cid, err := uuid.Parse(choiceIDStr)
+			if err != nil {
+				cRows.Close()
+				return nil, fmt.Errorf("invalid choice id in db: %w", err)
+			}
+			meta.ChoiceIDs[cid] = struct{}{}
+		}
+		if err := cRows.Err(); err != nil {
+			cRows.Close()
+			return nil, fmt.Errorf("iteration error on choices: %w", err)
+		}
+		cRows.Close()
+		res[qid] = meta
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on questions: %w", err)
+	}
+
+	return res, nil
+}
+
+func InsertSubmission(h *sql.DB, submission models.Submission) (models.Submission, error) {
+	tx, err := h.Begin()
+	if err != nil {
+		return models.Submission{}, err
+	}
+	defer tx.Rollback()
+
+	const insertSubmission = `
+	INSERT INTO submissions(id, survey_id, user_id, submitted_at)
+	VALUES (?, ?, ?, ?);
+	`
+	const insertAnswer = `
+	INSERT INTO answers(id, submission_id, question_id, choice_id, text_response)
+	VALUES (?, ?, ?, ?, ?);
+	`
+
+	_, err = tx.Exec(insertSubmission, submission.ID.String(), submission.SurveyID.String(), submission.UserID.String(), submission.Time)
+	if err != nil {
+		return models.Submission{}, fmt.Errorf("failed to insert submission: %w", err)
+	}
+
+	for _, ans := range submission.Answers {
+		var choiceID any
+		if ans.ChoiceID != nil {
+			choiceID = ans.ChoiceID.String()
+		}
+		_, err = tx.Exec(insertAnswer, ans.ID.String(), submission.ID.String(), ans.QuestionID.String(), choiceID, ans.TextResponse)
+		if err != nil {
+			return models.Submission{}, fmt.Errorf("failed to insert answer: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return models.Submission{}, fmt.Errorf("failed to commit submission transaction: %w", err)
+	}
+	return submission, nil
+}
+
+func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]models.Submission, error) {
+	query := `
+	SELECT id, survey_id, user_id, submitted_at
+	FROM submissions
+	WHERE survey_id = ?
+	`
+	args := []any{surveyID}
+	if userID != nil {
+		query += " AND user_id = ?"
+		args = append(args, *userID)
+	}
+	query += " ORDER BY submitted_at DESC;"
+
+	rows, err := h.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query submissions: %w", err)
+	}
+	defer rows.Close()
+
+	res := []models.Submission{}
+	for rows.Next() {
+		var sub models.Submission
+		var idStr, surveyIDStr, userIDStr string
+		if err := rows.Scan(&idStr, &surveyIDStr, &userIDStr, &sub.Time); err != nil {
+			return nil, fmt.Errorf("failed to scan submissions: %w", err)
+		}
+		if sub.ID, err = uuid.Parse(idStr); err != nil {
+			return nil, fmt.Errorf("invalid submission id: %w", err)
+		}
+		if sub.SurveyID, err = uuid.Parse(surveyIDStr); err != nil {
+			return nil, fmt.Errorf("invalid survey id in submission: %w", err)
+		}
+		if sub.UserID, err = uuid.Parse(userIDStr); err != nil {
+			return nil, fmt.Errorf("invalid user id in submission: %w", err)
+		}
+
+		answers, err := listAnswersBySubmission(h, idStr)
+		if err != nil {
+			return nil, err
+		}
+		sub.Answers = answers
+		res = append(res, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+
+	return res, nil
+}
+
+func ListSubmissionsByUser(h *sql.DB, userID string) ([]models.Submission, error) {
+	query := `
+	SELECT id, survey_id, user_id, submitted_at
+	FROM submissions
+	WHERE user_id = ?
+	ORDER BY submitted_at DESC;
+	`
+	rows, err := h.Query(query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query submissions by user: %w", err)
+	}
+	defer rows.Close()
+
+	res := []models.Submission{}
+	for rows.Next() {
+		var sub models.Submission
+		var idStr, surveyIDStr, userIDStr string
+		if err := rows.Scan(&idStr, &surveyIDStr, &userIDStr, &sub.Time); err != nil {
+			return nil, fmt.Errorf("failed to scan submissions: %w", err)
+		}
+		if sub.ID, err = uuid.Parse(idStr); err != nil {
+			return nil, fmt.Errorf("invalid submission id: %w", err)
+		}
+		if sub.SurveyID, err = uuid.Parse(surveyIDStr); err != nil {
+			return nil, fmt.Errorf("invalid survey id in submission: %w", err)
+		}
+		if sub.UserID, err = uuid.Parse(userIDStr); err != nil {
+			return nil, fmt.Errorf("invalid user id in submission: %w", err)
+		}
+
+		answers, err := listAnswersBySubmission(h, idStr)
+		if err != nil {
+			return nil, err
+		}
+		sub.Answers = answers
+		res = append(res, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+
+	return res, nil
+}
+
+func listAnswersBySubmission(h *sql.DB, submissionID string) ([]models.Answer, error) {
+	const query = `
+	SELECT id, question_id, choice_id, text_response
+	FROM answers
+	WHERE submission_id = ?;
+	`
+	rows, err := h.Query(query, submissionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query answers: %w", err)
+	}
+	defer rows.Close()
+
+	answers := []models.Answer{}
+	for rows.Next() {
+		var ans models.Answer
+		var idStr, questionIDStr string
+		var choiceIDStr sql.NullString
+		if err := rows.Scan(&idStr, &questionIDStr, &choiceIDStr, &ans.TextResponse); err != nil {
+			return nil, fmt.Errorf("failed to scan answers: %w", err)
+		}
+		var parseErr error
+		if ans.ID, parseErr = uuid.Parse(idStr); parseErr != nil {
+			return nil, fmt.Errorf("invalid answer id: %w", parseErr)
+		}
+		if ans.QuestionID, parseErr = uuid.Parse(questionIDStr); parseErr != nil {
+			return nil, fmt.Errorf("invalid question id: %w", parseErr)
+		}
+		if choiceIDStr.Valid {
+			choiceID, parseErr := uuid.Parse(choiceIDStr.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid choice id: %w", parseErr)
+			}
+			ans.ChoiceID = &choiceID
+		}
+		answers = append(answers, ans)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on answers: %w", err)
+	}
+	return answers, nil
 }
 
 // Testing environment
