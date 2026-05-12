@@ -194,7 +194,7 @@ func TestPublicCatalogQueries(t *testing.T) {
 	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour), true)
 	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), false)
 
-	publicSubs, err := ListPublicSubmissionsBySurvey(db, fixture.surveyID.String())
+	publicSubs, err := ListPublicSubmissionsBySurvey(db, fixture.surveyID.String(), 50, 0)
 	if err != nil {
 		t.Fatalf("ListPublicSubmissionsBySurvey failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestPublicCatalogQueries(t *testing.T) {
 		t.Fatalf("expected 1 public submission, got %d", len(publicSubs))
 	}
 
-	publicAnswers, err := ListPublicAnswersByQuestion(db, fixture.q1ID.String())
+	publicAnswers, err := ListPublicAnswersByQuestion(db, fixture.q1ID.String(), 50, 0)
 	if err != nil {
 		t.Fatalf("ListPublicAnswersByQuestion failed: %v", err)
 	}

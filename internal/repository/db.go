@@ -483,14 +483,15 @@ func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]mode
 	return res, nil
 }
 
-func ListPublicSubmissionsBySurvey(h *sql.DB, surveyID string) ([]models.Submission, error) {
+func ListPublicSubmissionsBySurvey(h *sql.DB, surveyID string, limit, offset int) ([]models.Submission, error) {
 	const query = `
 	SELECT id, survey_id, user_id, submitted_at
 	FROM submissions
 	WHERE survey_id = ? AND is_public = 1
-	ORDER BY submitted_at DESC;
+	ORDER BY submitted_at DESC
+	LIMIT ? OFFSET ?;
 	`
-	rows, err := h.Query(query, surveyID)
+	rows, err := h.Query(query, surveyID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query public submissions: %w", err)
 	}
@@ -571,15 +572,16 @@ func ListSubmissionsByUser(h *sql.DB, userID string) ([]models.Submission, error
 	return res, nil
 }
 
-func ListPublicAnswersByQuestion(h *sql.DB, questionID string) ([]models.CatalogAnswer, error) {
+func ListPublicAnswersByQuestion(h *sql.DB, questionID string, limit, offset int) ([]models.CatalogAnswer, error) {
 	const query = `
 	SELECT a.id, a.question_id, a.choice_id, a.text_response, s.survey_id, s.submitted_at
 	FROM answers a
 	JOIN submissions s ON s.id = a.submission_id
 	WHERE a.question_id = ? AND s.is_public = 1
-	ORDER BY s.submitted_at DESC;
+	ORDER BY s.submitted_at DESC
+	LIMIT ? OFFSET ?;
 	`
-	rows, err := h.Query(query, questionID)
+	rows, err := h.Query(query, questionID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query public answers: %w", err)
 	}

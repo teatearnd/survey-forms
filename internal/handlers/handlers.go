@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -316,6 +317,8 @@ func (h *Handler) GetPublicSubmissionsBySurvey(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	limit, offset := parsePaginationParams(r)
+
 	exists, err := repository.SurveyExists(h.DB, surveyID)
 	if err != nil {
 		log.Printf("GetPublicSubmissionsBySurvey: failed on SurveyExists: %v", err)
@@ -327,7 +330,7 @@ func (h *Handler) GetPublicSubmissionsBySurvey(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	res, err := repository.ListPublicSubmissionsBySurvey(h.DB, surveyID)
+	res, err := repository.ListPublicSubmissionsBySurvey(h.DB, surveyID, limit, offset)
 	if err != nil {
 		log.Printf("GetPublicSubmissionsBySurvey: failed on ListPublicSubmissionsBySurvey: %v", err)
 		http.Error(w, "failed to list submissions", http.StatusInternalServerError)
@@ -354,6 +357,8 @@ func (h *Handler) GetPublicAnswersByQuestion(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	limit, offset := parsePaginationParams(r)
+
 	exists, err := repository.QuestionExists(h.DB, questionID)
 	if err != nil {
 		log.Printf("GetPublicAnswersByQuestion: failed on QuestionExists: %v", err)
@@ -365,7 +370,7 @@ func (h *Handler) GetPublicAnswersByQuestion(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	res, err := repository.ListPublicAnswersByQuestion(h.DB, questionID)
+	res, err := repository.ListPublicAnswersByQuestion(h.DB, questionID, limit, offset)
 	if err != nil {
 		log.Printf("GetPublicAnswersByQuestion: failed on ListPublicAnswersByQuestion: %v", err)
 		http.Error(w, "failed to list answers", http.StatusInternalServerError)
@@ -435,4 +440,23 @@ func toCatalogQuestionAnswerResponse(ans models.CatalogAnswer) dto.ResponseCatal
 		SurveyID:     ans.SurveyID,
 		SubmittedAt:  ans.SubmittedAt,
 	}
+}
+
+func parsePaginationParams(r *http.Request) (limit, offset int) {
+	limit = 50
+	offset = 0
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 1000 {
+			limit = parsed
+		}
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	return limit, offset
 }

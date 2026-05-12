@@ -73,8 +73,11 @@ Public endpoints
 - `GET /survey/{surveyId}` — retrieve a single survey by id
 - `DELETE /survey/{surveyId}` — delete a survey by id
 - `GET /catalog/surveys/{surveyId}/submissions` — list public submissions for a survey (anonymous)
+	- Query parameters: `limit` (default 50, max 1000), `offset` (default 0)
+	- Response: array of submissions without `user_id`
 - `GET /catalog/questions/{questionId}/answers` — list public answers for a question (anonymous)
-	- Catalog responses never include `user_id`
+	- Query parameters: `limit` (default 50, max 1000), `offset` (default 0)
+	- Response: array of answers without `user_id`
 
 Protected endpoints (require Authorization: Bearer <token>)
 
@@ -123,6 +126,19 @@ curl -X POST http://localhost:8080/survey/<survey-id>/submissions \
 	-H "Authorization: Bearer $TOKEN" \
 	-H "Content-Type: application/json" \
 	-d '{"answers":[{"question_id":"<q-id>","text_response":"Good"}]}'
+```
+
+Public catalog (examples):
+
+```bash
+# List public submissions for a survey (first 50)
+curl http://localhost:8080/catalog/surveys/<survey-id>/submissions
+
+# List public submissions with pagination
+curl http://localhost:8080/catalog/surveys/<survey-id>/submissions?limit=100&offset=0
+
+# List public answers for a question
+curl http://localhost:8080/catalog/questions/<question-id>/answers?limit=50&offset=0
 ```
 
 Testing
