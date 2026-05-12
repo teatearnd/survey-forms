@@ -44,6 +44,8 @@ func main() {
 	r.Post("/survey", def_handler.CreateSurvey)
 	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
 	r.Delete("/survey/{surveyId}", def_handler.DeleteSurvey)
+	r.Get("/catalog/surveys/{surveyId}/submissions", def_handler.GetPublicSubmissionsBySurvey)
+	r.Get("/catalog/questions/{questionId}/answers", def_handler.GetPublicAnswersByQuestion)
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)

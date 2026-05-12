@@ -8,10 +8,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
+	"github.com/google/uuid"
 )
 
 func TestDefaultHandler(t *testing.T) {
@@ -99,4 +101,56 @@ func TestCreateSurvey(t *testing.T) {
 		t.Errorf("no survey is present in response")
 	}
 
+}
+
+func TestPublicCatalogEndpoints(t *testing.T) {
+	db := setupTestDB(t)
+	fixture := createSurveyFixture(t, db)
+	defHandler := &Handler{DB: db}
+
+	userID := uuid.New()
+	otherUser := uuid.New()
+	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour), true)
+	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), false)
+
+	// Public submissions by survey
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/catalog/surveys/{surveyId}/submissions", nil)
+	req = addURLParam(req, "surveyId", fixture.surveyID.String())
+	handler := http.HandlerFunc(defHandler.GetPublicSubmissionsBySurvey)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var subs []dto.ResponseCatalogSubmission
+	if err := json.Unmarshal(recorder.Body.Bytes(), &subs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(subs) != 1 {
+		t.Fatalf("expected 1 public submission, got %d", len(subs))
+	}
+
+	// Public answers by question
+	recorder = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/catalog/questions/{questionId}/answers", nil)
+	req = addURLParam(req, "questionId", fixture.q1ID.String())
+	handler = http.HandlerFunc(defHandler.GetPublicAnswersByQuestion)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var answers []dto.ResponseCatalogQuestionAnswer
+	if err := json.Unmarshal(recorder.Body.Bytes(), &answers); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(answers) != 1 {
+		t.Fatalf("expected 1 public answer, got %d", len(answers))
+	}
+	if answers[0].QuestionID != fixture.q1ID {
+		t.Fatalf("expected question_id %s, got %s", fixture.q1ID, answers[0].QuestionID)
+	}
 }

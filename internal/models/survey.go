@@ -43,6 +43,7 @@ type Submission struct {
 	SurveyID uuid.UUID `json:"survey_id"`
 	UserID   uuid.UUID `json:"user_id"`
 	Answers  []Answer  `json:"answers"`
+	IsPublic bool      `json:"is_public"`
 	Time     time.Time `json:"submitted_at"`
 }
 
@@ -59,4 +60,13 @@ type QuestionMeta struct {
 	Type        QuestionType
 	IsMandatory bool
 	ChoiceIDs   map[uuid.UUID]struct{}
+}
+
+type CatalogAnswer struct {
+	ID           uuid.UUID
+	QuestionID   uuid.UUID
+	ChoiceID     *uuid.UUID
+	TextResponse string
+	SurveyID     uuid.UUID
+	SubmittedAt  time.Time
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"example.com/m/internal/dto"
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 	id TEXT PRIMARY KEY,
 	survey_id TEXT NOT NULL,
 	user_id TEXT NOT NULL,
+	is_public BOOL NOT NULL DEFAULT 1,
 	submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
 );
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS answers (
 
 CREATE INDEX IF NOT EXISTS idx_submissions_survey_id ON submissions(survey_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_public_survey ON submissions(survey_id, is_public);
 CREATE INDEX IF NOT EXISTS idx_answers_submission_id ON answers(submission_id);
 `
 
@@ -89,11 +92,27 @@ func InitSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to initialize tables %w", err)
 	}
 
+	if err := ensureSubmissionPublicColumn(db); err != nil {
+		return err
+	}
+
 	_, err = db.Exec("PRAGMA foreign_keys = ON;")
 	if err != nil {
 		return fmt.Errorf("failed to turn on fkeys at %w", err)
 	}
 	return nil
+}
+
+func ensureSubmissionPublicColumn(db *sql.DB) error {
+	_, err := db.Exec("ALTER TABLE submissions ADD COLUMN is_public BOOL NOT NULL DEFAULT 1;")
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "duplicate column") {
+		return nil
+	}
+	return fmt.Errorf("failed to add submissions.is_public column: %w", err)
 }
 
 func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
@@ -377,15 +396,22 @@ func InsertSubmission(h *sql.DB, submission models.Submission) (models.Submissio
 	defer tx.Rollback()
 
 	const insertSubmission = `
-	INSERT INTO submissions(id, survey_id, user_id, submitted_at)
-	VALUES (?, ?, ?, ?);
+	INSERT INTO submissions(id, survey_id, user_id, is_public, submitted_at)
+	VALUES (?, ?, ?, ?, ?);
 	`
 	const insertAnswer = `
 	INSERT INTO answers(id, submission_id, question_id, choice_id, text_response)
 	VALUES (?, ?, ?, ?, ?);
 	`
 
-	_, err = tx.Exec(insertSubmission, submission.ID.String(), submission.SurveyID.String(), submission.UserID.String(), submission.Time)
+	_, err = tx.Exec(
+		insertSubmission,
+		submission.ID.String(),
+		submission.SurveyID.String(),
+		submission.UserID.String(),
+		submission.IsPublic,
+		submission.Time,
+	)
 	if err != nil {
 		return models.Submission{}, fmt.Errorf("failed to insert submission: %w", err)
 	}
@@ -423,6 +449,50 @@ func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]mode
 	rows, err := h.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query submissions: %w", err)
+	}
+	defer rows.Close()
+
+	res := []models.Submission{}
+	for rows.Next() {
+		var sub models.Submission
+		var idStr, surveyIDStr, userIDStr string
+		if err := rows.Scan(&idStr, &surveyIDStr, &userIDStr, &sub.Time); err != nil {
+			return nil, fmt.Errorf("failed to scan submissions: %w", err)
+		}
+		if sub.ID, err = uuid.Parse(idStr); err != nil {
+			return nil, fmt.Errorf("invalid submission id: %w", err)
+		}
+		if sub.SurveyID, err = uuid.Parse(surveyIDStr); err != nil {
+			return nil, fmt.Errorf("invalid survey id in submission: %w", err)
+		}
+		if sub.UserID, err = uuid.Parse(userIDStr); err != nil {
+			return nil, fmt.Errorf("invalid user id in submission: %w", err)
+		}
+
+		answers, err := listAnswersBySubmission(h, idStr)
+		if err != nil {
+			return nil, err
+		}
+		sub.Answers = answers
+		res = append(res, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+
+	return res, nil
+}
+
+func ListPublicSubmissionsBySurvey(h *sql.DB, surveyID string) ([]models.Submission, error) {
+	const query = `
+	SELECT id, survey_id, user_id, submitted_at
+	FROM submissions
+	WHERE survey_id = ? AND is_public = 1
+	ORDER BY submitted_at DESC;
+	`
+	rows, err := h.Query(query, surveyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query public submissions: %w", err)
 	}
 	defer rows.Close()
 
@@ -501,6 +571,54 @@ func ListSubmissionsByUser(h *sql.DB, userID string) ([]models.Submission, error
 	return res, nil
 }
 
+func ListPublicAnswersByQuestion(h *sql.DB, questionID string) ([]models.CatalogAnswer, error) {
+	const query = `
+	SELECT a.id, a.question_id, a.choice_id, a.text_response, s.survey_id, s.submitted_at
+	FROM answers a
+	JOIN submissions s ON s.id = a.submission_id
+	WHERE a.question_id = ? AND s.is_public = 1
+	ORDER BY s.submitted_at DESC;
+	`
+	rows, err := h.Query(query, questionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query public answers: %w", err)
+	}
+	defer rows.Close()
+
+	res := []models.CatalogAnswer{}
+	for rows.Next() {
+		var ans models.CatalogAnswer
+		var idStr, questionIDStr, surveyIDStr string
+		var choiceIDStr sql.NullString
+		if err := rows.Scan(&idStr, &questionIDStr, &choiceIDStr, &ans.TextResponse, &surveyIDStr, &ans.SubmittedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan public answers: %w", err)
+		}
+		var parseErr error
+		if ans.ID, parseErr = uuid.Parse(idStr); parseErr != nil {
+			return nil, fmt.Errorf("invalid answer id: %w", parseErr)
+		}
+		if ans.QuestionID, parseErr = uuid.Parse(questionIDStr); parseErr != nil {
+			return nil, fmt.Errorf("invalid question id: %w", parseErr)
+		}
+		if ans.SurveyID, parseErr = uuid.Parse(surveyIDStr); parseErr != nil {
+			return nil, fmt.Errorf("invalid survey id: %w", parseErr)
+		}
+		if choiceIDStr.Valid {
+			choiceID, parseErr := uuid.Parse(choiceIDStr.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid choice id: %w", parseErr)
+			}
+			ans.ChoiceID = &choiceID
+		}
+		res = append(res, ans)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on public answers: %w", err)
+	}
+
+	return res, nil
+}
+
 func listAnswersBySubmission(h *sql.DB, submissionID string) ([]models.Answer, error) {
 	const query = `
 	SELECT id, question_id, choice_id, text_response
@@ -541,6 +659,22 @@ func listAnswersBySubmission(h *sql.DB, submissionID string) ([]models.Answer, e
 		return nil, fmt.Errorf("iteration error on answers: %w", err)
 	}
 	return answers, nil
+}
+
+func QuestionExists(h *sql.DB, id string) (bool, error) {
+	const query = `
+	SELECT 1 FROM questions
+	WHERE id = ?
+	LIMIT 1;
+	`
+	var exists int
+	if err := h.QueryRow(query, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check question existence: %w", err)
+	}
+	return true, nil
 }
 
 // Testing environment

@@ -80,7 +80,7 @@ func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 	return fixture
 }
 
-func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time) {
+func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time, isPublic bool) {
 	t.Helper()
 	submissionID := uuid.New()
 	answers := []models.Answer{
@@ -103,6 +103,7 @@ func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uu
 		ID:       submissionID,
 		SurveyID: fixture.surveyID,
 		UserID:   userID,
+		IsPublic: isPublic,
 		Time:     submittedAt,
 		Answers:  answers,
 	}
@@ -149,8 +150,8 @@ func TestSubmissionQueries(t *testing.T) {
 
 	userID := uuid.New()
 	otherUser := uuid.New()
-	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour))
-	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour))
+	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour), true)
+	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), true)
 
 	allSubs, err := ListSubmissionsBySurvey(db, fixture.surveyID.String(), nil)
 	if err != nil {
@@ -181,5 +182,34 @@ func TestSubmissionQueries(t *testing.T) {
 	}
 	if byUser[0].UserID != otherUser {
 		t.Fatalf("expected user_id %s, got %s", otherUser, byUser[0].UserID)
+	}
+}
+
+func TestPublicCatalogQueries(t *testing.T) {
+	db := setupTestDB(t)
+	fixture := createSurveyFixture(t, db)
+
+	userID := uuid.New()
+	otherUser := uuid.New()
+	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour), true)
+	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), false)
+
+	publicSubs, err := ListPublicSubmissionsBySurvey(db, fixture.surveyID.String())
+	if err != nil {
+		t.Fatalf("ListPublicSubmissionsBySurvey failed: %v", err)
+	}
+	if len(publicSubs) != 1 {
+		t.Fatalf("expected 1 public submission, got %d", len(publicSubs))
+	}
+
+	publicAnswers, err := ListPublicAnswersByQuestion(db, fixture.q1ID.String())
+	if err != nil {
+		t.Fatalf("ListPublicAnswersByQuestion failed: %v", err)
+	}
+	if len(publicAnswers) != 1 {
+		t.Fatalf("expected 1 public answer for question, got %d", len(publicAnswers))
+	}
+	if publicAnswers[0].QuestionID != fixture.q1ID {
+		t.Fatalf("expected question_id %s, got %s", fixture.q1ID, publicAnswers[0].QuestionID)
 	}
 }

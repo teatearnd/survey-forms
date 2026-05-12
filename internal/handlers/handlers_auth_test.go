@@ -121,7 +121,7 @@ func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 	return fixture
 }
 
-func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time) {
+func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time, isPublic bool) {
 	t.Helper()
 	answers := []models.Answer{
 		{
@@ -147,6 +147,7 @@ func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uu
 		ID:       submissionID,
 		SurveyID: fixture.surveyID,
 		UserID:   userID,
+		IsPublic: isPublic,
 		Time:     submittedAt,
 		Answers:  answers,
 	}
@@ -221,8 +222,8 @@ func TestGetSubmissionsBySurveyFiltersNonAdmin(t *testing.T) {
 
 	userID := uuid.New()
 	otherUser := uuid.New()
-	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour))
-	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour))
+	createSubmission(t, db, fixture, userID, time.Now().Add(-2*time.Hour), true)
+	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), true)
 
 	defHandler := &Handler{DB: db}
 	token := createTestToken(t, auth.AccessClaims{Email: "user@example.com", UserID: userID.String(), Role: "user"})
@@ -258,7 +259,7 @@ func TestGetSubmissionsByUserForbidden(t *testing.T) {
 
 	userID := uuid.New()
 	otherUser := uuid.New()
-	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour))
+	createSubmission(t, db, fixture, otherUser, time.Now().Add(-1*time.Hour), true)
 
 	defHandler := &Handler{DB: db}
 	token := createTestToken(t, auth.AccessClaims{Email: "user@example.com", UserID: userID.String(), Role: "user"})

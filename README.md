@@ -72,12 +72,16 @@ Public endpoints
 	- Response: created survey object and message (201)
 - `GET /survey/{surveyId}` — retrieve a single survey by id
 - `DELETE /survey/{surveyId}` — delete a survey by id
+- `GET /catalog/surveys/{surveyId}/submissions` — list public submissions for a survey (anonymous)
+- `GET /catalog/questions/{questionId}/answers` — list public answers for a question (anonymous)
+	- Catalog responses never include `user_id`
 
 Protected endpoints (require Authorization: Bearer <token>)
 
 - `POST /survey/{surveyId}/submissions` — submit answers for a survey
 	- Body: `RequestCreateSubmission` (answers array with `question_id`, optional `choice_id`, optional `text_response`)
 	- Requires a valid JWT; token's `user_id` is used as the submitter
+	- Submissions are public by default for the catalog
 	- Response: created submission (201)
 - `GET /survey/{surveyId}/submissions` — list submissions for a survey
 	- Admin users (token claim `role` == `admin`) can retrieve all submissions; otherwise only submissions for the token user are returned

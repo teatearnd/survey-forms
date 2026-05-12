@@ -106,3 +106,26 @@ type ResponseAnswer struct {
 	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
 	TextResponse string     `json:"text_response,omitempty"`
 }
+
+type ResponseCatalogSubmission struct {
+	ID          uuid.UUID               `json:"id"`
+	SurveyID    uuid.UUID               `json:"survey_id"`
+	Answers     []ResponseCatalogAnswer `json:"answers"`
+	SubmittedAt time.Time               `json:"submitted_at"`
+}
+
+type ResponseCatalogAnswer struct {
+	ID           uuid.UUID  `json:"id"`
+	QuestionID   uuid.UUID  `json:"question_id"`
+	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
+	TextResponse string     `json:"text_response,omitempty"`
+}
+
+type ResponseCatalogQuestionAnswer struct {
+	ID           uuid.UUID  `json:"id"`
+	QuestionID   uuid.UUID  `json:"question_id"`
+	ChoiceID     *uuid.UUID `json:"choice_id,omitempty"`
+	TextResponse string     `json:"text_response,omitempty"`
+	SurveyID     uuid.UUID  `json:"survey_id"`
+	SubmittedAt  time.Time  `json:"submitted_at"`
+}

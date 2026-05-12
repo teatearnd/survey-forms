@@ -203,6 +203,7 @@ func (h *Handler) CreateSubmission(w http.ResponseWriter, r *http.Request) {
 		ID:       submissionID,
 		SurveyID: surveyUUID,
 		UserID:   userUUID,
+		IsPublic: true,
 		Time:     time.Now().UTC(),
 		Answers:  []models.Answer{},
 	}
@@ -308,6 +309,82 @@ func (h *Handler) GetSubmissionsByUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) GetPublicSubmissionsBySurvey(w http.ResponseWriter, r *http.Request) {
+	surveyID := chi.URLParam(r, "surveyId")
+	if err := validations.ValidateUuid(surveyID); err != nil {
+		http.Error(w, "bad uuid", http.StatusBadRequest)
+		return
+	}
+
+	exists, err := repository.SurveyExists(h.DB, surveyID)
+	if err != nil {
+		log.Printf("GetPublicSubmissionsBySurvey: failed on SurveyExists: %v", err)
+		http.Error(w, "failed to validate survey", http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "survey not found", http.StatusNotFound)
+		return
+	}
+
+	res, err := repository.ListPublicSubmissionsBySurvey(h.DB, surveyID)
+	if err != nil {
+		log.Printf("GetPublicSubmissionsBySurvey: failed on ListPublicSubmissionsBySurvey: %v", err)
+		http.Error(w, "failed to list submissions", http.StatusInternalServerError)
+		return
+	}
+
+	response := make([]dto.ResponseCatalogSubmission, 0, len(res))
+	for _, sub := range res {
+		response = append(response, toCatalogSubmissionResponse(sub))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetPublicAnswersByQuestion(w http.ResponseWriter, r *http.Request) {
+	questionID := chi.URLParam(r, "questionId")
+	if err := validations.ValidateUuid(questionID); err != nil {
+		http.Error(w, "bad uuid", http.StatusBadRequest)
+		return
+	}
+
+	exists, err := repository.QuestionExists(h.DB, questionID)
+	if err != nil {
+		log.Printf("GetPublicAnswersByQuestion: failed on QuestionExists: %v", err)
+		http.Error(w, "failed to validate question", http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "question not found", http.StatusNotFound)
+		return
+	}
+
+	res, err := repository.ListPublicAnswersByQuestion(h.DB, questionID)
+	if err != nil {
+		log.Printf("GetPublicAnswersByQuestion: failed on ListPublicAnswersByQuestion: %v", err)
+		http.Error(w, "failed to list answers", http.StatusInternalServerError)
+		return
+	}
+
+	response := make([]dto.ResponseCatalogQuestionAnswer, 0, len(res))
+	for _, ans := range res {
+		response = append(response, toCatalogQuestionAnswerResponse(ans))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
 func toSubmissionResponse(sub models.Submission) dto.ResponseSubmission {
 	resp := dto.ResponseSubmission{
 		ID:          sub.ID,
@@ -327,4 +404,35 @@ func toSubmissionResponse(sub models.Submission) dto.ResponseSubmission {
 	}
 
 	return resp
+}
+
+func toCatalogSubmissionResponse(sub models.Submission) dto.ResponseCatalogSubmission {
+	resp := dto.ResponseCatalogSubmission{
+		ID:          sub.ID,
+		SurveyID:    sub.SurveyID,
+		SubmittedAt: sub.Time,
+		Answers:     make([]dto.ResponseCatalogAnswer, 0, len(sub.Answers)),
+	}
+
+	for _, ans := range sub.Answers {
+		resp.Answers = append(resp.Answers, dto.ResponseCatalogAnswer{
+			ID:           ans.ID,
+			QuestionID:   ans.QuestionID,
+			ChoiceID:     ans.ChoiceID,
+			TextResponse: ans.TextResponse,
+		})
+	}
+
+	return resp
+}
+
+func toCatalogQuestionAnswerResponse(ans models.CatalogAnswer) dto.ResponseCatalogQuestionAnswer {
+	return dto.ResponseCatalogQuestionAnswer{
+		ID:           ans.ID,
+		QuestionID:   ans.QuestionID,
+		ChoiceID:     ans.ChoiceID,
+		TextResponse: ans.TextResponse,
+		SurveyID:     ans.SurveyID,
+		SubmittedAt:  ans.SubmittedAt,
+	}
 }
