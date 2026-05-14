@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"example.com/m/internal/auth"
+	"example.com/m/internal/cache"
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
@@ -20,7 +21,8 @@ import (
 )
 
 type Handler struct {
-	DB *sql.DB
+	DB    *sql.DB
+	Cache *cache.RedisCache
 }
 
 func DefaultHandler(w http.ResponseWriter, r *http.Request) {
@@ -459,4 +461,118 @@ func parsePaginationParams(r *http.Request) (limit, offset int) {
 	}
 
 	return limit, offset
+}
+
+// Cart Handlers
+func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+
+	var req dto.RequestCartObject
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := validations.DecodeStrict(dec, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	b, err := json.Marshal(req.Item)
+	if err != nil {
+		http.Error(w, "failed to marshal payload", http.StatusInternalServerError)
+		return
+	}
+	if err := h.Cache.AddItem(claims.UserID, string(b)); err != nil {
+		log.Printf("AddToCart: cache add failed: %v", err)
+		http.Error(w, "failed to add to cart", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+
+	limit, offset := parsePaginationParams(r)
+	items, err := h.Cache.GetItems(claims.UserID, limit, offset)
+	if err != nil {
+		log.Printf("GetCart: failed to get items: %v", err)
+		http.Error(w, "failed to get cart", http.StatusInternalServerError)
+		return
+	}
+
+	resp := dto.ResponseCart{Cart: make([]map[string]any, 0, len(items))}
+	for _, it := range items {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(it), &m); err != nil {
+			// if unmarshal fails, store raw under key _raw
+			m = map[string]any{"_raw": it}
+		}
+		resp.Cart = append(resp.Cart, m)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+
+	idxStr := chi.URLParam(r, "index")
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 0 {
+		http.Error(w, "bad index", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Cache.RemoveItemByIndex(claims.UserID, idx); err != nil {
+		log.Printf("RemoveFromCart: failed: %v", err)
+		http.Error(w, "failed to remove item", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.Cache.ClearCart(claims.UserID); err != nil {
+		log.Printf("ClearCart: failed: %v", err)
+		http.Error(w, "failed to clear cart", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"example.com/m/internal/auth"
+	"example.com/m/internal/cache"
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
+	miniredis "github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -161,6 +163,21 @@ func addURLParam(req *http.Request, key, value string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add(key, value)
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+func setupCartTestCache(t *testing.T) *cache.RedisCache {
+	t.Helper()
+	srv, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(srv.Close)
+
+	redisCache := cache.NewRedisCache(srv.Addr(), "", 0)
+	if err := redisCache.Ping(); err != nil {
+		t.Fatalf("failed to ping redis: %v", err)
+	}
+	return redisCache
 }
 
 func TestCreateSubmissionSuccess(t *testing.T) {
@@ -339,5 +356,102 @@ func TestDeleteSurvey(t *testing.T) {
 	}
 	if resp["deleted_id"] != fixture.surveyID.String() {
 		t.Fatalf("expected deleted_id %s, got %v", fixture.surveyID, resp["deleted_id"])
+	}
+}
+
+func TestCartAddGetRemoveClear(t *testing.T) {
+	initAuthForTest(t)
+	redisCache := setupCartTestCache(t)
+	defHandler := &Handler{Cache: redisCache}
+
+	userID := uuid.New()
+	token := createTestToken(t, auth.AccessClaims{Email: "user@example.com", UserID: userID.String(), Role: "user"})
+
+	// Add two items
+	addPayload := func(value string) []byte {
+		body := dto.RequestCartObject{Item: map[string]any{"item": value}}
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to marshal cart payload: %v", err)
+		}
+		return payload
+	}
+
+	for _, value := range []string{"first", "second"} {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/cart/items", bytes.NewReader(addPayload(value)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.AddToCart))
+		handler.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+		}
+	}
+
+	// Get cart with pagination
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/cart?limit=1&offset=0", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.GetCart))
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var cartResp dto.ResponseCart
+	if err := json.Unmarshal(recorder.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to decode cart response: %v", err)
+	}
+	if len(cartResp.Cart) != 1 {
+		t.Fatalf("expected 1 cart item, got %d", len(cartResp.Cart))
+	}
+	if cartResp.Cart[0]["item"] != "second" {
+		t.Fatalf("expected newest item first, got %#v", cartResp.Cart[0])
+	}
+
+	// Remove newest item (index 0)
+	recorder = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/cart/items/0", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req = addURLParam(req, "index", "0")
+	handler = auth.AuthMiddleware(http.HandlerFunc(defHandler.RemoveFromCart))
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	// Clear remaining cart
+	recorder = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/cart", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler = auth.AuthMiddleware(http.HandlerFunc(defHandler.ClearCart))
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	if count, err := redisCache.Len(userID.String()); err != nil {
+		t.Fatalf("Len failed: %v", err)
+	} else if count != 0 {
+		t.Fatalf("expected empty cart, got %d items", count)
+	}
+}
+
+func TestCartUnauthorized(t *testing.T) {
+	initAuthForTest(t)
+	redisCache := setupCartTestCache(t)
+	defHandler := &Handler{Cache: redisCache}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/cart/items", bytes.NewReader([]byte(`{"item":{"item":"x"}}`)))
+	req.Header.Set("Content-Type", "application/json")
+	handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.AddToCart))
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
 }

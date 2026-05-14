@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"example.com/m/internal/auth"
+	"example.com/m/internal/cache"
 	"example.com/m/internal/handlers"
 	"example.com/m/internal/repository"
 
@@ -25,7 +26,19 @@ func main() {
 		log.Fatalf("failed at db initialization: %v", err)
 	}
 
-	def_handler := &handlers.Handler{DB: db}
+	// redis init
+	redisAddr := os.Getenv("REDIS_ADDRESS")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	redisPass := os.Getenv("REDIS_PASSWORD")
+	redisDB := 0
+	cacheClient := cache.NewRedisCache(redisAddr, redisPass, redisDB)
+	if err := cacheClient.Ping(); err != nil {
+		log.Fatalf("failed to ping redis: %v", err)
+	}
+
+	def_handler := &handlers.Handler{DB: db, Cache: cacheClient}
 	authInit := auth.Settings{
 		Secret:   os.Getenv("JWT_SECRET"),
 		Issuer:   os.Getenv("JWT_ISSUER"),
@@ -52,6 +65,11 @@ func main() {
 		r.Post("/survey/{surveyId}/submissions", def_handler.CreateSubmission)
 		r.Get("/survey/{surveyId}/submissions", def_handler.GetSubmissionsBySurvey)
 		r.Get("/users/{userId}/submissions", def_handler.GetSubmissionsByUser)
+		// Cart endpoints
+		r.Post("/cart/items", def_handler.AddToCart)
+		r.Get("/cart", def_handler.GetCart)
+		r.Delete("/cart/items/{index}", def_handler.RemoveFromCart)
+		r.Delete("/cart", def_handler.ClearCart)
 	})
 
 	log.Printf("starting server on :8080")
