@@ -369,7 +369,11 @@ func TestCartAddGetRemoveClear(t *testing.T) {
 
 	// Add two items
 	addPayload := func(value string) []byte {
-		body := dto.RequestCartObject{Item: map[string]any{"item": value}}
+		body := dto.RequestCartObject{Item: dto.CartItem{
+			SurveyID:   uuid.New(),
+			QuestionID: uuid.New(),
+			Note:       value,
+		}}
 		payload, err := json.Marshal(body)
 		if err != nil {
 			t.Fatalf("failed to marshal cart payload: %v", err)
@@ -408,7 +412,7 @@ func TestCartAddGetRemoveClear(t *testing.T) {
 	if len(cartResp.Cart) != 1 {
 		t.Fatalf("expected 1 cart item, got %d", len(cartResp.Cart))
 	}
-	if cartResp.Cart[0]["item"] != "second" {
+	if cartResp.Cart[0].Note != "second" {
 		t.Fatalf("expected newest item first, got %#v", cartResp.Cart[0])
 	}
 

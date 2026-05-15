@@ -516,12 +516,13 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := dto.ResponseCart{Cart: make([]map[string]any, 0, len(items))}
+	resp := dto.ResponseCart{Cart: make([]dto.CartItem, 0, len(items))}
 	for _, it := range items {
-		var m map[string]any
+		var m dto.CartItem
 		if err := json.Unmarshal([]byte(it), &m); err != nil {
-			// if unmarshal fails, store raw under key _raw
-			m = map[string]any{"_raw": it}
+			log.Printf("GetCart: failed to decode cart item: %v", err)
+			http.Error(w, "failed to decode cart item", http.StatusInternalServerError)
+			return
 		}
 		resp.Cart = append(resp.Cart, m)
 	}

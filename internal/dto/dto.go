@@ -130,13 +130,22 @@ type ResponseCatalogQuestionAnswer struct {
 	SubmittedAt  time.Time  `json:"submitted_at"`
 }
 
+// CartItem for RequestCartObject
+type CartItem struct {
+	SurveyID     uuid.UUID `json:"survey_id"`
+	QuestionID   uuid.UUID `json:"question_id"`
+	SubmissionID uuid.UUID `json:"submission_id,omitempty"`
+	AnswerID     uuid.UUID `json:"answer_id,omitempty"`
+	Note         string    `json:"note,omitempty"`
+}
+
 // to send the object to the cart
 type RequestCartObject struct {
 	// stored as-is (JSON) in Redis
-	Item map[string]any `json:"item"`
+	Item CartItem `json:"item"`
 }
 
 // to receive an array of the cart
 type ResponseCart struct {
-	Cart []map[string]any `json:"cart"`
+	Cart []CartItem `json:"cart"`
 }
