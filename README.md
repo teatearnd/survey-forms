@@ -1,19 +1,21 @@
 Survey Forms API
 ================
 
-Lightweight survey management and submission API written in Go. Uses SQLite for storage and JWT for authenticated endpoints.
+Lightweight survey management and submission API written in Go. Uses SQLite for storage, Redis for caching, and JWT for authenticated endpoints.
 
 Quick summary
 -------------
 
 - HTTP server listening on port 8080
 - SQLite database stored at `./my.db` by default
-- JWT-based authentication for protected submission endpoints
+- Redis cache for cart functionality (defaults to `localhost:6379`)
+- JWT-based authentication for protected submission and cart endpoints
 
 Prerequisites
 -------------
 
-- Go 1.18+ installed
+- Go 1.26.1 or later
+- Redis server (for cart functionality)
 
 Getting started
 ---------------
@@ -32,14 +34,27 @@ go run main.go
 
 Environment variables
 ---------------------
-
-The application requires JWT configuration for protected routes:
+Required for JWT configuration:
 
 - `JWT_SECRET` — HMAC secret used to validate tokens
 - `JWT_ISSUER` — expected token issuer
 - `JWT_AUDIENCE` — expected token audience
 
-If these are not set the application will fail to start.
+Optional for Redis (defaults provided):
+
+- `REDIS_ADDRESS` — Redis server address (default: `localhost:6379`)
+Storage
+-------
+
+**Database**: SQLite (driver: mattn/go-sqlite3)
+- Default database file: `my.db` in the project root
+- Schema is created automatically on startup
+- For tests, uses `test.db`
+
+**Cache**: Redis (driver: go-redis/redis)
+- Stores user shopping carts
+- Default address: `localhost:6379`
+- Configurable via environment variables
 
 Database
 --------
@@ -73,15 +88,30 @@ Public endpoints
 - `GET /survey/{surveyId}` — retrieve a single survey by id
 - `DELETE /survey/{surveyId}` — delete a survey by id
 - `GET /catalog/surveys/{surveyId}/submissions` — list public submissions for a survey (anonymous)
-	- Query parameters: `limit` (default 50, max 1000), `offset` (default 0)
-	- Response: array of submissions without `user_id`
-- `GET /catalog/questions/{questionId}/answers` — list public answers for a question (anonymous)
-	- Query parameters: `limit` (default 50, max 1000), `offset` (default 0)
-	- Response: array of answers without `user_id`
-
-Protected endpoints (require Authorization: Bearer <token>)
+**Survey Submissions**
 
 - `POST /survey/{surveyId}/submissions` — submit answers for a survey
+	- Body: `RequestCreateSubmission` (answers array with `question_id`, optional `choice_id`, optional `text_response`)
+	- Requires a valid JWT; token's `user_id` is used as the submitter
+	- Submissions are public by default for the catalog
+	- Response: created submission (201)
+- `GET /survey/{surveyId}/submissions` — list submissions for a survey
+	- Admin users (token claim `role` == `admin`) can retrieve all submissions; otherwise only submissions for the token user are returned
+- `GET /users/{userId}/submissions` — list submissions for a user
+	- Admins or the user themself may access this endpoint
+
+**Shopping Cart** (stored in Redis)
+
+- `POST /cart/items` — add an item to user's cart
+	- Body: `{ "item": { "survey_id", "question_id", "submission_id" (optional), "answer_id" (optional), "note" (optional) } }`
+	- Response: 201 Created
+- `GET /cart` — retrieve user's cart items
+	- Query parameters: `limit` (default 50), `offset` (default 0) for pagination
+	- Response: array of cart items
+- `DELETE /cart/items/{index}` — remove item at specific index from cart
+	- Response: 200 OK
+- `DELETE /cart` — clear entire user's cart
+	- Response: 200 OKs for a survey
 	- Body: `RequestCreateSubmission` (answers array with `question_id`, optional `choice_id`, optional `text_response`)
 	- Requires a valid JWT; token's `user_id` is used as the submitter
 	- Submissions are public by default for the catalog
@@ -138,8 +168,10 @@ curl http://localhost:8080/catalog/surveys/<survey-id>/submissions
 curl http://localhost:8080/catalog/surveys/<survey-id>/submissions?limit=100&offset=0
 
 # List public answers for a question
-curl http://localhost:8080/catalog/questions/<question-id>/answers?limit=50&offset=0
-```
+curl http://localhost:8080/catalog/questions/<question-id>/answers?limi; tests use `test.db`
+- Ensure `JWT_SECRET`, `JWT_ISSUER`, and `JWT_AUDIENCE` are set in your environment before starting the server
+- Redis must be running and accessible at the configured address for cart functionality
+- Cart items are stored as JSON in Redis under keys prefixed with `cart:<user_id>`
 
 Testing
 -------
