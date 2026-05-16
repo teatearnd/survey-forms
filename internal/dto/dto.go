@@ -132,11 +132,11 @@ type ResponseCatalogQuestionAnswer struct {
 
 // CartItem for RequestCartObject
 type CartItem struct {
-	SurveyID     uuid.UUID `json:"survey_id"`
-	QuestionID   uuid.UUID `json:"question_id"`
-	SubmissionID uuid.UUID `json:"submission_id,omitempty"`
-	AnswerID     uuid.UUID `json:"answer_id,omitempty"`
-	Note         string    `json:"note,omitempty"`
+	SurveyID     uuid.UUID  `json:"survey_id"`
+	QuestionID   uuid.UUID  `json:"question_id"`
+	SubmissionID *uuid.UUID `json:"submission_id,omitempty"`
+	AnswerID     *uuid.UUID `json:"answer_id,omitempty"`
+	Note         string     `json:"note,omitempty"`
 }
 
 // to send the object to the cart
