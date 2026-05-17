@@ -35,7 +35,7 @@ func main() {
 	redisDB := 0
 	cacheClient := cache.NewRedisCache(redisAddr, redisPass, redisDB)
 	if err := cacheClient.Ping(); err != nil {
-		log.Fatalf("failed to ping redis: %v", err)
+		log.Printf("[REDIS IS DOWN] failed to ping redis: %v", err) // should it hard-fail?
 	}
 
 	def_handler := &handlers.Handler{DB: db, Cache: cacheClient}

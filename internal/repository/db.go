@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"example.com/m/internal/dto"
@@ -91,28 +90,11 @@ func InitSchema(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize tables %w", err)
 	}
-
-	if err := ensureSubmissionPublicColumn(db); err != nil {
-		return err
-	}
-
 	_, err = db.Exec("PRAGMA foreign_keys = ON;")
 	if err != nil {
 		return fmt.Errorf("failed to turn on fkeys at %w", err)
 	}
 	return nil
-}
-
-func ensureSubmissionPublicColumn(db *sql.DB) error {
-	_, err := db.Exec("ALTER TABLE submissions ADD COLUMN is_public BOOL NOT NULL DEFAULT 1;")
-	if err == nil {
-		return nil
-	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "duplicate column") {
-		return nil
-	}
-	return fmt.Errorf("failed to add submissions.is_public column: %w", err)
 }
 
 func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {

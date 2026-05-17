@@ -2,24 +2,17 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"example.com/m/internal/auth"
 	"example.com/m/internal/cache"
 	"example.com/m/internal/dto"
-	"example.com/m/internal/models"
-	"example.com/m/internal/repository"
-	miniredis "github.com/alicebob/miniredis/v2"
-	"github.com/go-chi/chi/v5"
-	"github.com/golang-jwt/jwt/v5"
+	"example.com/m/internal/testutil"
 	"github.com/google/uuid"
 )
 
@@ -31,45 +24,15 @@ const (
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := repository.OpenDB_test()
-	if err != nil {
-		t.Fatalf("failed at db open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Close()
-		if err := os.Remove("./test.db"); err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("failed to remove test db: %v", err)
-		}
-	})
-	if err := repository.InitSchema(db); err != nil {
-		t.Fatalf("failed at db initialization: %v", err)
-	}
+	db, cleanup := testutil.SetupTestDB(t)
+	t.Cleanup(cleanup)
 	return db
 }
 
-func initAuthForTest(t *testing.T) {
-	t.Helper()
-	if err := auth.Init(auth.Settings{Secret: testSecret, Issuer: testIssuer, Audience: testAudience}); err != nil {
-		t.Fatalf("failed to init auth: %v", err)
-	}
-	if err := auth.ValidateConfig(); err != nil {
-		t.Fatalf("invalid auth config: %v", err)
-	}
-}
+func initAuthForTest(t *testing.T) { testutil.InitAuthForTest(t) }
 
 func createTestToken(t *testing.T, claims auth.AccessClaims) string {
-	t.Helper()
-	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer:    testIssuer,
-		Audience:  jwt.ClaimStrings{testAudience},
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString([]byte(testSecret))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
-	return signed
+	return testutil.CreateTestToken(t, claims)
 }
 
 type surveyFixture struct {
@@ -81,103 +44,35 @@ type surveyFixture struct {
 
 func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 	t.Helper()
-	fixture := surveyFixture{
-		surveyID: uuid.New(),
-		q1ID:     uuid.New(),
-		q2ID:     uuid.New(),
-		choiceID: uuid.New(),
+	f := testutil.CreateSurveyFixture(t, db)
+	return surveyFixture{
+		surveyID: f.SurveyID,
+		q1ID:     f.Q1ID,
+		q2ID:     f.Q2ID,
+		choiceID: f.ChoiceID,
 	}
-
-	survey := models.Survey{
-		ID:          fixture.surveyID,
-		Name:        "Survey One",
-		Description: "Survey Desc",
-		CreatedAt:   time.Now().UTC(),
-		Questions_list: []models.Question{
-			{
-				ID:          fixture.q1ID,
-				SurveyID:    fixture.surveyID,
-				Description: "Pick one",
-				Type:        models.MultipleChoice,
-				IsMandatory: true,
-				Choices: []models.Answer_choice{
-					{
-						ID:          fixture.choiceID,
-						Description: "Option A",
-					},
-				},
-			},
-			{
-				ID:          fixture.q2ID,
-				SurveyID:    fixture.surveyID,
-				Description: "Describe",
-				Type:        models.TextBased,
-				IsMandatory: true,
-			},
-		},
-	}
-
-	if _, err := repository.InsertSurvey(db, survey); err != nil {
-		t.Fatalf("failed to insert survey: %v", err)
-	}
-	return fixture
 }
 
 func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time, isPublic bool) {
 	t.Helper()
-	answers := []models.Answer{
-		{
-			ID:           uuid.New(),
-			QuestionID:   fixture.q1ID,
-			SubmissionID: uuid.New(),
-			ChoiceID:     &fixture.choiceID,
-			TextResponse: "",
-		},
-		{
-			ID:           uuid.New(),
-			QuestionID:   fixture.q2ID,
-			SubmissionID: uuid.New(),
-			TextResponse: "Some text",
-		},
-	}
-	submissionID := uuid.New()
-	for i := range answers {
-		answers[i].SubmissionID = submissionID
-	}
-
-	sub := models.Submission{
-		ID:       submissionID,
+	f := testutil.SurveyFixture{
 		SurveyID: fixture.surveyID,
-		UserID:   userID,
-		IsPublic: isPublic,
-		Time:     submittedAt,
-		Answers:  answers,
+		Q1ID:     fixture.q1ID,
+		Q2ID:     fixture.q2ID,
+		ChoiceID: fixture.choiceID,
 	}
-
-	if _, err := repository.InsertSubmission(db, sub); err != nil {
-		t.Fatalf("failed to insert submission: %v", err)
-	}
+	testutil.CreateSubmission(t, db, f, userID, submittedAt, isPublic)
 }
 
 func addURLParam(req *http.Request, key, value string) *http.Request {
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add(key, value)
-	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return testutil.AddURLParam(req, key, value)
 }
 
 func setupCartTestCache(t *testing.T) *cache.RedisCache {
 	t.Helper()
-	srv, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("failed to start miniredis: %v", err)
-	}
-	t.Cleanup(srv.Close)
-
-	redisCache := cache.NewRedisCache(srv.Addr(), "", 0)
-	if err := redisCache.Ping(); err != nil {
-		t.Fatalf("failed to ping redis: %v", err)
-	}
-	return redisCache
+	rc, cleanup := testutil.SetupMiniredisCache(t)
+	t.Cleanup(cleanup)
+	return rc
 }
 
 func TestCreateSubmissionSuccess(t *testing.T) {
