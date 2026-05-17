@@ -1,0 +1,7 @@
+.git
+.github
+*.db
+survey-service
+docker-compose.yml
+README.md
+internal/**/_test.go

@@ -16,12 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	testSecret   = "test-secret"
-	testIssuer   = "test-issuer"
-	testAudience = "test-audience"
-)
-
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, cleanup := testutil.SetupTestDB(t)

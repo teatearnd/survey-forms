@@ -19,6 +19,17 @@ go run main.go
 
 3. The server starts on `:8080` by default.
 
+Docker
+------
+
+Use Docker Compose to start the app and Redis together:
+
+```bash
+docker compose up --build
+```
+
+`JWT_SECRET`, `JWT_ISSUER`, and `JWT_AUDIENCE` are expected in the environment. See `.env.example`.
+
 Environment variables
 ---------------------
 Required for JWT configuration:
