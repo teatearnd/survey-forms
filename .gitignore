@@ -2,3 +2,5 @@
 */1/
 *.db
 *.env
+*/bruno/
+*bruno.json

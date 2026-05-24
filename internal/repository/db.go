@@ -16,6 +16,7 @@ import (
 
 const initSchema = `
 CREATE TABLE IF NOT EXISTS surveys (
+	owner_id TEXT NOT NULL,
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
 	description TEXT,
@@ -105,8 +106,8 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	defer tx.Rollback()
 
 	const inserting_surveys = `
-	INSERT INTO surveys(id, name, description, created_at)
-	VALUES (?, ?, ?, ?);
+	INSERT INTO surveys(owner_id, id, name, description, created_at)
+	VALUES (?, ?, ?, ?, ?);
 	`
 	const inserting_questions = `
 	INSERT INTO questions(id, survey_id, description, type, is_mandatory)
@@ -116,17 +117,17 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	INSERT INTO choices(id, question_id, description)
 	VALUES (?, ?, ?); `
 
-	_, err = tx.Exec(inserting_surveys, survey.ID, survey.Name, survey.Description, survey.CreatedAt)
+	_, err = tx.Exec(inserting_surveys, survey.OwnerID, survey.ID.String(), survey.Name, survey.Description, survey.CreatedAt)
 	if err != nil {
 		return models.Survey{}, fmt.Errorf("failed at inserting surveys %s into the db: %w", survey.ID, err)
 	}
 	for _, j := range survey.Questions_list {
-		_, err = tx.Exec(inserting_questions, j.ID, j.SurveyID, j.Description, j.Type, j.IsMandatory)
+		_, err = tx.Exec(inserting_questions, j.ID.String(), j.SurveyID.String(), j.Description, j.Type, j.IsMandatory)
 		if err != nil {
 			return models.Survey{}, fmt.Errorf("failed while inserting question %s %w", j.ID, err)
 		}
 		for _, c := range j.Choices {
-			_, err = tx.Exec(inserting_choices, c.ID, j.ID, c.Description)
+			_, err = tx.Exec(inserting_choices, c.ID.String(), j.ID.String(), c.Description)
 			if err != nil {
 				return models.Survey{}, fmt.Errorf("failed while inserting answer-choices: %w", err)
 			}
@@ -134,6 +135,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	}
 
 	created := models.Survey{
+		OwnerID:        survey.OwnerID,
 		ID:             survey.ID,
 		Name:           survey.Name,
 		Description:    survey.Description,
@@ -148,7 +150,29 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	return created, nil
 }
 
+func CheckOwnership(h *sql.DB, userID string, surveyID string) error {
+	var ownershipID string
+	const checkOwnership = `
+	SELECT owner_id FROM surveys WHERE id = ?;
+	`
+
+	err := h.QueryRow(checkOwnership, surveyID).Scan(&ownershipID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSurveyNotFound
+		}
+		return fmt.Errorf("failed to find the survey: %w", err)
+	}
+
+	if ownershipID != userID {
+		return ErrNotOwner
+	}
+
+	return nil
+}
+
 var ErrSurveyNotFound = errors.New("survey not found")
+var ErrNotOwner = errors.New("user is not the owner of the survey")
 
 func DeleteSurveyByID(h *sql.DB, id string) error {
 	const deleteSurvey = `
@@ -178,7 +202,7 @@ func DeleteSurveyByID(h *sql.DB, id string) error {
 
 func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	const searchSurvey = `
-	SELECT id, name, description, created_at FROM surveys;
+	SELECT owner_id, id, name, description, created_at FROM surveys;
 	`
 	rows, err := h.Query(searchSurvey)
 	if err != nil {
@@ -189,7 +213,7 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 	res := []dto.ResponseGetSurveys{}
 	for rows.Next() {
 		var temp models.Survey
-		err = rows.Scan(&temp.ID, &temp.Name, &temp.Description, &temp.CreatedAt)
+		err = rows.Scan(&temp.OwnerID, &temp.ID, &temp.Name, &temp.Description, &temp.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed when preparing results: %w", err)
 		}
@@ -207,7 +231,7 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 
 func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	const searchSurvey = `
-	SELECT id, name, description, created_at FROM surveys
+	SELECT owner_id, id, name, description, created_at FROM surveys
 	WHERE id = ?;
 	`
 	const searchQuestion = `
@@ -220,6 +244,7 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	`
 	res := models.Survey{}
 	err := h.QueryRow(searchSurvey, id).Scan(
+		&res.OwnerID,
 		&res.ID,
 		&res.Name,
 		&res.Description,
@@ -232,6 +257,7 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 		return dto.RequestSurvey{}, fmt.Errorf("failed when parsing a survey: %w", err)
 	}
 	response := dto.RequestSurvey{
+		OwnerID:        res.OwnerID,
 		ID:             res.ID,
 		Name:           res.Name,
 		Description:    res.Description,

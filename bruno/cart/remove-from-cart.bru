@@ -1,0 +1,17 @@
+meta {
+  name: Remove from Cart
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{base_url}}/cart/items/:index
+}
+
+params {
+  index: 0
+}
+
+headers {
+  Authorization: Bearer {{auth_token}}
+}

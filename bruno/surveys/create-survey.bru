@@ -1,0 +1,45 @@
+meta {
+  name: Create Survey
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/survey
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Customer Satisfaction Survey",
+    "description": "Please rate your experience with our service",
+    "questions_list": [
+      {
+        "description": "How satisfied are you?",
+        "type": 0,
+        "is_mandatory": true,
+        "choices": [
+          {
+            "description": "Very Satisfied"
+          },
+          {
+            "description": "Satisfied"
+          },
+          {
+            "description": "Neutral"
+          }
+        ]
+      },
+      {
+        "description": "Any additional comments?",
+        "type": 1,
+        "is_mandatory": false
+      }
+    ]
+  }
+}

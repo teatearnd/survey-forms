@@ -1,0 +1,15 @@
+meta {
+  name: List Public Answers by Question
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/catalog/questions/:questionId/answers
+}
+
+params {
+  questionId: {{question_id}}
+  limit: 100
+  offset: 0
+}

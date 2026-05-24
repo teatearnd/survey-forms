@@ -29,6 +29,7 @@ type SurveyFixture struct {
 	Q1ID     uuid.UUID
 	Q2ID     uuid.UUID
 	ChoiceID uuid.UUID
+	OwnerID  string
 }
 
 // SetupTestDB opens a test sqlite DB, initializes schema and returns cleanup func
@@ -58,8 +59,10 @@ func CreateSurveyFixture(t *testing.T, db *sql.DB) SurveyFixture {
 		Q2ID:     uuid.New(),
 		ChoiceID: uuid.New(),
 	}
+	ownerID := uuid.New().String()
 
 	survey := models.Survey{
+		OwnerID:     ownerID,
 		ID:          fixture.SurveyID,
 		Name:        "Survey One",
 		Description: "Survey Desc",
@@ -91,6 +94,8 @@ func CreateSurveyFixture(t *testing.T, db *sql.DB) SurveyFixture {
 	if _, err := repository.InsertSurvey(db, survey); err != nil {
 		t.Fatalf("failed to insert survey fixture: %v", err)
 	}
+	fixtureOwner := survey.OwnerID
+	fixture.OwnerID = fixtureOwner
 	return fixture
 }
 

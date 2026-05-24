@@ -40,12 +40,23 @@ func (h *Handler) CreateSurvey(w http.ResponseWriter, r *http.Request) {
 	new_survey := dto.RequestCreateSurvey{} // dto
 	decoder := json.NewDecoder(r.Body)
 
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+
 	decoder.DisallowUnknownFields()
 	err := validations.DecodeStrict(decoder, &new_survey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	new_survey.OwnerID = claims.UserID
 
 	dtoResponse := dto.ToSurvey(new_survey)
 	err = validations.ValidateSurveyAdding(dtoResponse)
@@ -80,7 +91,26 @@ func (h *Handler) DeleteSurvey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad uuid", http.StatusBadRequest)
 		return
 	}
-
+	claims, ok := auth.GetClaims(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := validations.ValidateUuid(claims.UserID); err != nil {
+		http.Error(w, "invalid token subject", http.StatusUnauthorized)
+		return
+	}
+	if strings.TrimSpace(strings.ToLower(claims.Role)) != "admin" {
+		if err := repository.CheckOwnership(h.DB, claims.UserID, survey); err != nil {
+			if errors.Is(err, repository.ErrSurveyNotFound) {
+				http.Error(w, "survey not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+	//
 	err = repository.DeleteSurveyByID(h.DB, survey)
 	if err != nil {
 		if errors.Is(err, repository.ErrSurveyNotFound) {

@@ -1,0 +1,24 @@
+meta {
+  name: Add to Cart
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/cart/items
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{auth_token}}
+}
+
+body {
+  json {
+    item: {
+      survey_id: "{{survey_id}}",
+      question_id: "{{question_id}}",
+      note: "Save for later"
+    }
+  }
+}

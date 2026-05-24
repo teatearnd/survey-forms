@@ -16,6 +16,7 @@ type surveyFixture struct {
 	q1ID     uuid.UUID
 	q2ID     uuid.UUID
 	choiceID uuid.UUID
+	ownerID  string
 }
 
 func setupTestDB(t *testing.T) *sql.DB {
@@ -44,8 +45,10 @@ func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 		q2ID:     uuid.New(),
 		choiceID: uuid.New(),
 	}
+	ownerID := uuid.New().String()
 
 	survey := models.Survey{
+		OwnerID:     ownerID,
 		ID:          fixture.surveyID,
 		Name:        "Survey One",
 		Description: "Survey Desc",
@@ -77,7 +80,19 @@ func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 	if _, err := InsertSurvey(db, survey); err != nil {
 		t.Fatalf("failed to insert survey: %v", err)
 	}
+	fixture.ownerID = ownerID
 	return fixture
+}
+
+func TestCheckOwnershipNotOwner(t *testing.T) {
+	db := setupTestDB(t)
+	fixture := createSurveyFixture(t, db)
+
+	otherUser := uuid.New()
+	err := CheckOwnership(db, otherUser.String(), fixture.surveyID.String())
+	if !errors.Is(err, ErrNotOwner) {
+		t.Fatalf("expected ErrNotOwner, got %v", err)
+	}
 }
 
 func createSubmission(t *testing.T, db *sql.DB, fixture surveyFixture, userID uuid.UUID, submittedAt time.Time, isPublic bool) {

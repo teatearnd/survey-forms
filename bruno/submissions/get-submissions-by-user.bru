@@ -1,0 +1,17 @@
+meta {
+  name: Get Submissions by User
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/users/:userId/submissions
+}
+
+params {
+  userId: {{user_id}}
+}
+
+headers {
+  Authorization: Bearer {{auth_token}}
+}

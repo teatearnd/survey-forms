@@ -34,6 +34,7 @@ type surveyFixture struct {
 	q1ID     uuid.UUID
 	q2ID     uuid.UUID
 	choiceID uuid.UUID
+	ownerID  string
 }
 
 func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
@@ -44,6 +45,7 @@ func createSurveyFixture(t *testing.T, db *sql.DB) surveyFixture {
 		q1ID:     f.Q1ID,
 		q2ID:     f.Q2ID,
 		choiceID: f.ChoiceID,
+		ownerID:  f.OwnerID,
 	}
 }
 
@@ -225,14 +227,19 @@ func TestGetSurveysAndGetSingleSurvey(t *testing.T) {
 }
 
 func TestDeleteSurvey(t *testing.T) {
+	initAuthForTest(t)
 	db := setupTestDB(t)
 	fixture := createSurveyFixture(t, db)
 	defHandler := &Handler{DB: db}
 
+	userID := uuid.MustParse(fixture.ownerID)
+	token := createTestToken(t, auth.AccessClaims{Email: "owner@example.com", UserID: userID.String(), Role: "user"})
+
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/survey/{surveyId}", nil)
 	req = addURLParam(req, "surveyId", fixture.surveyID.String())
-	handler := http.HandlerFunc(defHandler.DeleteSurvey)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.DeleteSurvey))
 	handler.ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusOK {
@@ -245,6 +252,28 @@ func TestDeleteSurvey(t *testing.T) {
 	}
 	if resp["deleted_id"] != fixture.surveyID.String() {
 		t.Fatalf("expected deleted_id %s, got %v", fixture.surveyID, resp["deleted_id"])
+	}
+}
+
+func TestDeleteSurveyNotOwner(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	fixture := createSurveyFixture(t, db)
+	defHandler := &Handler{DB: db}
+
+	// token for a different user
+	otherUser := uuid.New()
+	token := createTestToken(t, auth.AccessClaims{Email: "other@example.com", UserID: otherUser.String(), Role: "user"})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/survey/{surveyId}", nil)
+	req = addURLParam(req, "surveyId", fixture.surveyID.String())
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.DeleteSurvey))
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
 	}
 }
 

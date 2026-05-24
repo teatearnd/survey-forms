@@ -1,0 +1,13 @@
+meta {
+  name: Get Survey by ID
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/survey/:surveyId
+}
+
+params {
+  surveyId: {{survey_id}}
+}

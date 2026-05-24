@@ -1,0 +1,33 @@
+meta {
+  name: Create Submission
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/survey/:surveyId/submissions
+}
+
+params {
+  surveyId: {{survey_id}}
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{auth_token}}
+}
+
+body {
+  json {
+    answers: [
+      {
+        question_id: "{{question_id}}",
+        choice_id: "{{choice_id}}"
+      },
+      {
+        question_id: "{{question_id_2}}",
+        text_response: "Great service overall"
+      }
+    ]
+  }
+}

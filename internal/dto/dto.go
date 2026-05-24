@@ -12,12 +12,14 @@ type RequestLookupSurvey struct {
 }
 
 type RequestCreateSurvey struct {
+	OwnerID        string                  `json:"owner_id"`
 	Name           string                  `json:"name"`
 	Description    string                  `json:"description"`
 	Questions_list []RequestCreateQuestion `json:"questions_list"`
 }
 
 type RequestSurvey struct {
+	OwnerID        string            `json:"owner_id"`
 	ID             uuid.UUID         `json:"id"`
 	Name           string            `json:"name"`
 	Description    string            `json:"description"`
@@ -40,6 +42,7 @@ type RequestCreateQuestion struct {
 
 func ToSurvey(req RequestCreateSurvey) models.Survey {
 	survey := models.Survey{
+		OwnerID:     req.OwnerID,
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,

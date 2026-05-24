@@ -1,0 +1,29 @@
+meta {
+  name: Get Auth Token
+  type: http
+  seq: 0
+}
+
+post {
+  url: {{users_service_url}}/auth/login
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body {
+  json {
+    email: "test@example.com",
+    password: "test-password"
+  }
+}
+
+tests {
+  test("Save token to environment", function() {
+    const response = res.getBody();
+    if (response.token) {
+      bru.setVar("auth_token", response.token);
+    }
+  });
+}

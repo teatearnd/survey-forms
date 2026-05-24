@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"example.com/m/internal/auth"
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"example.com/m/internal/repository"
+	"example.com/m/internal/testutil"
 	"github.com/google/uuid"
 )
 
@@ -51,6 +53,9 @@ func TestCreateSurvey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed at db initialization: %v", err)
 	}
+	testutil.InitAuthForTest(t)
+	userID := uuid.New()
+	token := testutil.CreateTestToken(t, auth.AccessClaims{Email: "test@example.com", UserID: userID.String(), Role: "user"})
 	def_handler := &Handler{DB: db}
 	recorder := httptest.NewRecorder()
 	request := dto.RequestCreateSurvey{Name: "Survey Name", Description: "Survey Description", Questions_list: []dto.RequestCreateQuestion{
@@ -80,7 +85,8 @@ func TestCreateSurvey(t *testing.T) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	handler := http.HandlerFunc(def_handler.CreateSurvey)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler := auth.AuthMiddleware(http.HandlerFunc(def_handler.CreateSurvey))
 	handler.ServeHTTP(recorder, req)
 
 	if status := recorder.Code; status != http.StatusCreated {

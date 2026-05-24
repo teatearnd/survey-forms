@@ -54,17 +54,17 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Get("/", handlers.DefaultHandler)
 	r.Get("/surveys", def_handler.GetSurveys)
-	r.Post("/survey", def_handler.CreateSurvey)
 	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
-	r.Delete("/survey/{surveyId}", def_handler.DeleteSurvey)
-	r.Get("/catalog/surveys/{surveyId}/submissions", def_handler.GetPublicSubmissionsBySurvey)
-	r.Get("/catalog/questions/{questionId}/answers", def_handler.GetPublicAnswersByQuestion)
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)
 		r.Post("/survey/{surveyId}/submissions", def_handler.CreateSubmission)
 		r.Get("/survey/{surveyId}/submissions", def_handler.GetSubmissionsBySurvey)
 		r.Get("/users/{userId}/submissions", def_handler.GetSubmissionsByUser)
+		r.Get("/catalog/surveys/{surveyId}/submissions", def_handler.GetPublicSubmissionsBySurvey)
+		r.Get("/catalog/questions/{questionId}/answers", def_handler.GetPublicAnswersByQuestion)
+		r.Post("/survey", def_handler.CreateSurvey)
+		r.Delete("/survey/{surveyId}", def_handler.DeleteSurvey)
 		// Cart endpoints
 		r.Post("/cart/items", def_handler.AddToCart)
 		r.Get("/cart", def_handler.GetCart)

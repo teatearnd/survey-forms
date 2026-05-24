@@ -1,0 +1,15 @@
+meta {
+  name: List Public Submissions by Survey
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/catalog/surveys/:surveyId/submissions
+}
+
+params {
+  surveyId: {{survey_id}}
+  limit: 50
+  offset: 0
+}

@@ -8,6 +8,7 @@ import (
 
 // Foundation
 type Survey struct {
+	OwnerID        string     `json:"owner_id"`
 	ID             uuid.UUID  `json:"id"`
 	Name           string     `json:"name"`
 	Description    string     `json:"description"`
