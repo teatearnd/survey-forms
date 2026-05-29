@@ -32,7 +32,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-          -v ${{ github.workspace }}/docker/postgres-init.sql:/docker-entrypoint-initdb.d/postgres-init.sql:ro
       redis:
         image: redis:7
         ports:
