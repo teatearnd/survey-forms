@@ -49,5 +49,21 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -U survey_app -d survey_forms; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Create test database
+        env:
+          PGPASSWORD: survey_pass
+        run: |
+          psql -h localhost -U survey_app -d survey_forms -c "CREATE DATABASE survey_forms_test;"
+
       - name: Go test
         run: go test ./...
