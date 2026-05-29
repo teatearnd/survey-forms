@@ -94,6 +94,13 @@ func OpenDB() (*sql.DB, error) {
 }
 
 func InitSchema(db *sql.DB) error {
+	if _, err := db.Exec("SELECT pg_advisory_lock(942834729)"); err != nil {
+		return fmt.Errorf("failed to acquire schema lock: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("SELECT pg_advisory_unlock(942834729)")
+	}()
+
 	_, err := db.Exec(initSchema)
 	if err != nil {
 		return fmt.Errorf("failed to initialize tables %w", err)
