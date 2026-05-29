@@ -7,14 +7,20 @@ import (
 
 	"example.com/m/internal/auth"
 	"example.com/m/internal/cache"
+	"example.com/m/internal/config"
 	"example.com/m/internal/handlers"
 	"example.com/m/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf(".env not loaded: %v", err)
+	}
+
 	r := chi.NewRouter()
 	db, err := repository.OpenDB()
 	if err != nil {
@@ -37,24 +43,29 @@ func main() {
 	if err := cacheClient.Ping(); err != nil {
 		log.Printf("[REDIS IS DOWN] failed to ping redis: %v", err) // should it hard-fail?
 	}
-
-	def_handler := &handlers.Handler{DB: db, Cache: cacheClient}
+	cfg := config.LoadConfig()
 	authInit := auth.Settings{
 		Secret:   os.Getenv("JWT_SECRET"),
 		Issuer:   os.Getenv("JWT_ISSUER"),
 		Audience: os.Getenv("JWT_AUDIENCE"),
 	}
+	allowedDomains := config.ParseDomains(cfg.AllowedEmails)
 	if err := auth.Init(authInit); err != nil {
 		log.Fatalf("JWT init failed: %v", err)
 	}
 	if err := auth.ValidateConfig(); err != nil {
 		log.Fatalf("JWT config invalid: %v", err)
 	}
+	def_handler := &handlers.Handler{DB: db, Cache: cacheClient, AllowedDomains: allowedDomains}
 
 	r.Use(middleware.Logger)
 	r.Get("/", handlers.DefaultHandler)
 	r.Get("/surveys", def_handler.GetSurveys)
 	r.Get("/survey/{surveyId}", def_handler.GetSingleSurvey)
+
+	// auth
+	r.Post("/login", def_handler.LoginHandler)
+	r.Post("/register", def_handler.RegisterHandler)
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)

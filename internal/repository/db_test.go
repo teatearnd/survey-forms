@@ -3,7 +3,6 @@ package repository
 import (
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -26,10 +25,8 @@ func setupTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("failed at db open: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = db.Exec("TRUNCATE answers, choices, questions, submissions, surveys, users RESTART IDENTITY CASCADE;")
 		_ = db.Close()
-		if err := os.Remove("./test.db"); err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("failed to remove test db: %v", err)
-		}
 	})
 	if err := InitSchema(db); err != nil {
 		t.Fatalf("failed at db initialization: %v", err)

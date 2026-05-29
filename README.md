@@ -2,7 +2,7 @@ Survey Forms API
 ================
 
 Survey management service with possibility to create questionnaires, submit answers and gather data that becomes open and reusable for everyone.
-Go 1.26.1 and a Redis server is required. SQLite is used as a database, test suites make temporary db files and will clean up after. JWT authentication is for protected submission and cart endpoints. Cart items are stored as JSON in Redis under keys prefixed with `cart:<user_id>`
+Go 1.26.1, Postgres, and a Redis server are required. Tests run against a Postgres test database. JWT authentication is for protected submission and cart endpoints. Cart items are stored as JSON in Redis under keys prefixed with `cart:<user_id>`
 
 Getting started
 ---------------
@@ -22,17 +22,20 @@ go run main.go
 Docker
 ------
 
-Use Docker Compose to start the app and Redis together:
+Use Docker Compose to start the app, Postgres, and Redis together:
 
 ```bash
 docker compose up --build
 ```
 
-`JWT_SECRET`, `JWT_ISSUER`, and `JWT_AUDIENCE` are expected in the environment. See `.env.example`.
+`DATABASE_URL`, `JWT_SECRET`, `JWT_ISSUER`, and `JWT_AUDIENCE` are expected in the environment. See `.env.example`.
 
 Environment variables
 ---------------------
-Required for JWT configuration:
+Required for DB and JWT configuration:
+
+- `DATABASE_URL` — Postgres connection string
+- `DATABASE_URL_TEST` — Postgres test database connection string
 
 - `JWT_SECRET` — HMAC secret used to validate tokens
 - `JWT_ISSUER` — expected token issuer

@@ -3,17 +3,14 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"example.com/m/internal/auth"
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
-	"example.com/m/internal/repository"
 	"example.com/m/internal/testutil"
 	"github.com/google/uuid"
 )
@@ -38,21 +35,7 @@ func TestDefaultHandler(t *testing.T) {
 }
 
 func TestCreateSurvey(t *testing.T) {
-	dbPath := "./test.db"
-	db, err := repository.OpenDB_test()
-	if err != nil {
-		t.Fatalf("failed at db open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Close()
-		if err := os.Remove(dbPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("failed to delete remove test db %s: %v", dbPath, err)
-		}
-	})
-	err = repository.InitSchema(db)
-	if err != nil {
-		t.Fatalf("failed at db initialization: %v", err)
-	}
+	db := setupTestDB(t)
 	testutil.InitAuthForTest(t)
 	userID := uuid.New()
 	token := testutil.CreateTestToken(t, auth.AccessClaims{Email: "test@example.com", UserID: userID.String(), Role: "user"})

@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
-	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,20 +32,29 @@ type SurveyFixture struct {
 	OwnerID  string
 }
 
-// SetupTestDB opens a test sqlite DB, initializes schema and returns cleanup func
+// SetupTestDB opens a test postgres DB, initializes schema and returns cleanup func
 func SetupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 	db, err := repository.OpenDB_test()
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
+	schemaName := "test_" + strings.ReplaceAll(uuid.New().String(), "-", "_")
+	if _, err := db.Exec("CREATE SCHEMA \"" + schemaName + "\""); err != nil {
+		_ = db.Close()
+		t.Fatalf("failed to create test schema: %v", err)
+	}
+	if _, err := db.Exec("SET search_path TO \"" + schemaName + "\""); err != nil {
+		_ = db.Close()
+		t.Fatalf("failed to set search_path: %v", err)
+	}
 	if err := repository.InitSchema(db); err != nil {
 		_ = db.Close()
 		t.Fatalf("failed to init schema: %v", err)
 	}
 	cleanup := func() {
+		_, _ = db.Exec("DROP SCHEMA \"" + schemaName + "\" CASCADE")
 		_ = db.Close()
-		_ = os.Remove("./test.db")
 	}
 	return db, cleanup
 }

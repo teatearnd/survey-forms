@@ -5,22 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"example.com/m/internal/dto"
 	"example.com/m/internal/models"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 const initSchema = `
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS surveys (
 	owner_id TEXT NOT NULL,
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
 	description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS questions (
@@ -43,8 +45,8 @@ CREATE TABLE IF NOT EXISTS submissions (
 	id TEXT PRIMARY KEY,
 	survey_id TEXT NOT NULL,
 	user_id TEXT NOT NULL,
-	is_public BOOL NOT NULL DEFAULT 1,
-	submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	is_public BOOLEAN NOT NULL DEFAULT true,
+	submitted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
 );
 
@@ -59,6 +61,14 @@ CREATE TABLE IF NOT EXISTS answers (
 	FOREIGN KEY(choice_id) REFERENCES choices(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),	
+		password_hash TEXT NOT NULL,
+		email VARCHAR(255) UNIQUE NOT NULL,
+		role TEXT NOT NULL DEFAULT 'user',
+		created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+		);
+
 CREATE INDEX IF NOT EXISTS idx_submissions_survey_id ON submissions(survey_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_public_survey ON submissions(survey_id, is_public);
@@ -66,24 +76,21 @@ CREATE INDEX IF NOT EXISTS idx_answers_submission_id ON answers(submission_id);
 `
 
 func OpenDB() (*sql.DB, error) {
-	db, err := sqlx.Connect("sqlite3", "./my.db?_foreign_keys=1")
-	if err != nil {
-		fmt.Println(err)
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
-
-	db.SetMaxIdleConns(5)
-	db.SetMaxOpenConns(10)
-	db.SetConnMaxIdleTime(time.Second * 30)
-
-	err = db.Ping()
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
+		return nil, fmt.Errorf("failed to connect to the db: %w", err)
+	}
+	// maxopenconns, maxidleconns?
+	if err = db.Ping(); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to ping the db: %w", err)
 	}
-
 	log.Printf("established connection to db")
-	return db.DB, nil
+	return db, nil
 }
 
 func InitSchema(db *sql.DB) error {
@@ -91,12 +98,47 @@ func InitSchema(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize tables %w", err)
 	}
-	_, err = db.Exec("PRAGMA foreign_keys = ON;")
+	return nil
+}
+
+func CreateUser(h *sql.DB, cred dto.UserRegistration) error {
+	query := `INSERT INTO users (email, password_hash) VALUES ($1, $2)`
+	_, err := h.Exec(query, cred.Email, cred.Password)
 	if err != nil {
-		return fmt.Errorf("failed to turn on fkeys at %w", err)
+		return fmt.Errorf("failed to insert a user: %w", err)
 	}
 	return nil
 }
+
+func FindUserByEmail(h *sql.DB, email string) (string, error) {
+	query := `SELECT password_hash FROM users WHERE email = $1`
+	var hash string
+	err := h.QueryRow(query, email).Scan(&hash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("user not found")
+		}
+		return "", err
+	}
+	return hash, nil
+}
+
+func FindUserForLogin(h *sql.DB, email string) (string, string, string, error) {
+	query := `SELECT id, role, password_hash FROM users WHERE email = $1`
+	var id string
+	var role string
+	var hash string
+	err := h.QueryRow(query, email).Scan(&id, &role, &hash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", "", fmt.Errorf("user not found")
+		}
+		return "", "", "", err
+	}
+	return id, role, hash, nil
+}
+
+//
 
 func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 	tx, err := h.Begin()
@@ -107,15 +149,15 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 
 	const inserting_surveys = `
 	INSERT INTO surveys(owner_id, id, name, description, created_at)
-	VALUES (?, ?, ?, ?, ?);
+	VALUES ($1, $2, $3, $4, $5);
 	`
 	const inserting_questions = `
 	INSERT INTO questions(id, survey_id, description, type, is_mandatory)
-	VALUES (?, ?, ?, ?, ?);
+	VALUES ($1, $2, $3, $4, $5);
 	`
 	const inserting_choices = `
 	INSERT INTO choices(id, question_id, description)
-	VALUES (?, ?, ?); `
+	VALUES ($1, $2, $3); `
 
 	_, err = tx.Exec(inserting_surveys, survey.OwnerID, survey.ID.String(), survey.Name, survey.Description, survey.CreatedAt)
 	if err != nil {
@@ -153,7 +195,7 @@ func InsertSurvey(h *sql.DB, survey models.Survey) (models.Survey, error) {
 func CheckOwnership(h *sql.DB, userID string, surveyID string) error {
 	var ownershipID string
 	const checkOwnership = `
-	SELECT owner_id FROM surveys WHERE id = ?;
+	SELECT owner_id FROM surveys WHERE id = $1;
 	`
 
 	err := h.QueryRow(checkOwnership, surveyID).Scan(&ownershipID)
@@ -177,7 +219,7 @@ var ErrNotOwner = errors.New("user is not the owner of the survey")
 func DeleteSurveyByID(h *sql.DB, id string) error {
 	const deleteSurvey = `
 	DELETE FROM surveys
-	WHERE id = ?;
+	WHERE id = $1;
 	`
 	tx, err := h.Begin()
 	if err != nil {
@@ -232,15 +274,15 @@ func ListSurveys(h *sql.DB) ([]dto.ResponseGetSurveys, error) {
 func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	const searchSurvey = `
 	SELECT owner_id, id, name, description, created_at FROM surveys
-	WHERE id = ?;
+	WHERE id = $1;
 	`
 	const searchQuestion = `
 	SELECT description, type, is_mandatory, id FROM questions
-	WHERE survey_id = ?;
+	WHERE survey_id = $1;
 	`
 	const searchOptions = `
 	SELECT id, description FROM choices
-	WHERE question_id = ?
+	WHERE question_id = $1;
 	`
 	res := models.Survey{}
 	err := h.QueryRow(searchSurvey, id).Scan(
@@ -269,15 +311,22 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 	if err != nil {
 		return dto.RequestSurvey{}, fmt.Errorf("failed to read results: %w", err)
 	}
-	defer rows.Close()
-
+	questions := []models.Question{}
 	for rows.Next() {
 		question := models.Question{}
 		err = rows.Scan(&question.Description, &question.Type, &question.IsMandatory, &question.ID)
 		if err != nil {
 			return dto.RequestSurvey{}, fmt.Errorf("failed to read questions: %w", err)
 		}
+		questions = append(questions, question)
+	}
 
+	if err = rows.Err(); err != nil {
+		return dto.RequestSurvey{}, fmt.Errorf("iteration error: %w", err)
+	}
+	rows.Close()
+
+	for _, question := range questions {
 		choices := []models.Answer_choice{}
 
 		cRows, err := h.Query(searchOptions, question.ID)
@@ -299,7 +348,6 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 		}
 		cRows.Close()
 
-		// new dto with no survey_id present
 		dto_question := dto.RequestQuestion{
 			Description: question.Description,
 			Type:        question.Type,
@@ -309,17 +357,13 @@ func RetrieveSurvey(h *sql.DB, id string) (dto.RequestSurvey, error) {
 		response.Questions_list = append(response.Questions_list, dto_question)
 	}
 
-	if err = rows.Err(); err != nil {
-		return dto.RequestSurvey{}, fmt.Errorf("iteration error: %w", err)
-	}
-
 	return response, nil
 }
 
 func SurveyExists(h *sql.DB, id string) (bool, error) {
 	const query = `
 	SELECT 1 FROM surveys
-	WHERE id = ?
+	WHERE id = $1
 	LIMIT 1;
 	`
 	var exists int
@@ -335,19 +379,18 @@ func SurveyExists(h *sql.DB, id string) (bool, error) {
 func GetSurveyQuestionMeta(h *sql.DB, surveyID string) (map[uuid.UUID]models.QuestionMeta, error) {
 	const queryQuestions = `
 	SELECT id, type, is_mandatory FROM questions
-	WHERE survey_id = ?;
+	WHERE survey_id = $1;
 	`
 	const queryChoices = `
 	SELECT id FROM choices
-	WHERE question_id = ?;
+	WHERE question_id = $1;
 	`
 	rows, err := h.Query(queryQuestions, surveyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read survey questions: %w", err)
 	}
-	defer rows.Close()
-
 	res := make(map[uuid.UUID]models.QuestionMeta)
+	questionIDs := make([]uuid.UUID, 0)
 	for rows.Next() {
 		var idStr string
 		var qType models.QuestionType
@@ -365,7 +408,16 @@ func GetSurveyQuestionMeta(h *sql.DB, surveyID string) (map[uuid.UUID]models.Que
 			IsMandatory: isMandatory,
 			ChoiceIDs:   map[uuid.UUID]struct{}{},
 		}
-		cRows, err := h.Query(queryChoices, idStr)
+		res[qid] = meta
+		questionIDs = append(questionIDs, qid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration error on questions: %w", err)
+	}
+	rows.Close()
+
+	for _, qid := range questionIDs {
+		cRows, err := h.Query(queryChoices, qid.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to read choices: %w", err)
 		}
@@ -380,17 +432,15 @@ func GetSurveyQuestionMeta(h *sql.DB, surveyID string) (map[uuid.UUID]models.Que
 				cRows.Close()
 				return nil, fmt.Errorf("invalid choice id in db: %w", err)
 			}
+			meta := res[qid]
 			meta.ChoiceIDs[cid] = struct{}{}
+			res[qid] = meta
 		}
 		if err := cRows.Err(); err != nil {
 			cRows.Close()
 			return nil, fmt.Errorf("iteration error on choices: %w", err)
 		}
 		cRows.Close()
-		res[qid] = meta
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iteration error on questions: %w", err)
 	}
 
 	return res, nil
@@ -405,11 +455,11 @@ func InsertSubmission(h *sql.DB, submission models.Submission) (models.Submissio
 
 	const insertSubmission = `
 	INSERT INTO submissions(id, survey_id, user_id, is_public, submitted_at)
-	VALUES (?, ?, ?, ?, ?);
+	VALUES ($1, $2, $3, $4, $5);
 	`
 	const insertAnswer = `
 	INSERT INTO answers(id, submission_id, question_id, choice_id, text_response)
-	VALUES (?, ?, ?, ?, ?);
+	VALUES ($1, $2, $3, $4, $5);
 	`
 
 	_, err = tx.Exec(
@@ -445,11 +495,11 @@ func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]mode
 	query := `
 	SELECT id, survey_id, user_id, submitted_at
 	FROM submissions
-	WHERE survey_id = ?
+	WHERE survey_id = $1
 	`
 	args := []any{surveyID}
 	if userID != nil {
-		query += " AND user_id = ?"
+		query += " AND user_id = $2"
 		args = append(args, *userID)
 	}
 	query += " ORDER BY submitted_at DESC;"
@@ -458,8 +508,6 @@ func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to query submissions: %w", err)
 	}
-	defer rows.Close()
-
 	res := []models.Submission{}
 	for rows.Next() {
 		var sub models.Submission
@@ -477,15 +525,19 @@ func ListSubmissionsBySurvey(h *sql.DB, surveyID string, userID *string) ([]mode
 			return nil, fmt.Errorf("invalid user id in submission: %w", err)
 		}
 
-		answers, err := listAnswersBySubmission(h, idStr)
-		if err != nil {
-			return nil, err
-		}
-		sub.Answers = answers
 		res = append(res, sub)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+	rows.Close()
+
+	for i := range res {
+		answers, err := listAnswersBySubmission(h, res[i].ID.String())
+		if err != nil {
+			return nil, err
+		}
+		res[i].Answers = answers
 	}
 
 	return res, nil
@@ -495,16 +547,14 @@ func ListPublicSubmissionsBySurvey(h *sql.DB, surveyID string, limit, offset int
 	const query = `
 	SELECT id, survey_id, user_id, submitted_at
 	FROM submissions
-	WHERE survey_id = ? AND is_public = 1
+	WHERE survey_id = $1 AND is_public = true
 	ORDER BY submitted_at DESC
-	LIMIT ? OFFSET ?;
+	LIMIT $2 OFFSET $3;
 	`
 	rows, err := h.Query(query, surveyID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query public submissions: %w", err)
 	}
-	defer rows.Close()
-
 	res := []models.Submission{}
 	for rows.Next() {
 		var sub models.Submission
@@ -522,15 +572,19 @@ func ListPublicSubmissionsBySurvey(h *sql.DB, surveyID string, limit, offset int
 			return nil, fmt.Errorf("invalid user id in submission: %w", err)
 		}
 
-		answers, err := listAnswersBySubmission(h, idStr)
-		if err != nil {
-			return nil, err
-		}
-		sub.Answers = answers
 		res = append(res, sub)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+	rows.Close()
+
+	for i := range res {
+		answers, err := listAnswersBySubmission(h, res[i].ID.String())
+		if err != nil {
+			return nil, err
+		}
+		res[i].Answers = answers
 	}
 
 	return res, nil
@@ -540,15 +594,13 @@ func ListSubmissionsByUser(h *sql.DB, userID string) ([]models.Submission, error
 	query := `
 	SELECT id, survey_id, user_id, submitted_at
 	FROM submissions
-	WHERE user_id = ?
+	WHERE user_id = $1
 	ORDER BY submitted_at DESC;
 	`
 	rows, err := h.Query(query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query submissions by user: %w", err)
 	}
-	defer rows.Close()
-
 	res := []models.Submission{}
 	for rows.Next() {
 		var sub models.Submission
@@ -566,15 +618,19 @@ func ListSubmissionsByUser(h *sql.DB, userID string) ([]models.Submission, error
 			return nil, fmt.Errorf("invalid user id in submission: %w", err)
 		}
 
-		answers, err := listAnswersBySubmission(h, idStr)
-		if err != nil {
-			return nil, err
-		}
-		sub.Answers = answers
 		res = append(res, sub)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iteration error on submissions: %w", err)
+	}
+	rows.Close()
+
+	for i := range res {
+		answers, err := listAnswersBySubmission(h, res[i].ID.String())
+		if err != nil {
+			return nil, err
+		}
+		res[i].Answers = answers
 	}
 
 	return res, nil
@@ -585,9 +641,9 @@ func ListPublicAnswersByQuestion(h *sql.DB, questionID string, limit, offset int
 	SELECT a.id, a.question_id, a.choice_id, a.text_response, s.survey_id, s.submitted_at
 	FROM answers a
 	JOIN submissions s ON s.id = a.submission_id
-	WHERE a.question_id = ? AND s.is_public = 1
+	WHERE a.question_id = $1 AND s.is_public = true
 	ORDER BY s.submitted_at DESC
-	LIMIT ? OFFSET ?;
+	LIMIT $2 OFFSET $3;
 	`
 	rows, err := h.Query(query, questionID, limit, offset)
 	if err != nil {
@@ -633,7 +689,7 @@ func listAnswersBySubmission(h *sql.DB, submissionID string) ([]models.Answer, e
 	const query = `
 	SELECT id, question_id, choice_id, text_response
 	FROM answers
-	WHERE submission_id = ?;
+	WHERE submission_id = $1;
 	`
 	rows, err := h.Query(query, submissionID)
 	if err != nil {
@@ -674,7 +730,7 @@ func listAnswersBySubmission(h *sql.DB, submissionID string) ([]models.Answer, e
 func QuestionExists(h *sql.DB, id string) (bool, error) {
 	const query = `
 	SELECT 1 FROM questions
-	WHERE id = ?
+	WHERE id = $1
 	LIMIT 1;
 	`
 	var exists int
@@ -689,14 +745,18 @@ func QuestionExists(h *sql.DB, id string) (bool, error) {
 
 // Testing environment
 func OpenDB_test() (*sql.DB, error) {
-	db, err := sqlx.Connect("sqlite3", "./test.db?_foreign_keys=1")
+	dsn := os.Getenv("DATABASE_URL_TEST")
+	if dsn == "" {
+		dsn = "postgres://survey_app:survey_pass@localhost:5432/survey_forms_test?sslmode=disable"
+	}
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		fmt.Println(err)
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	db.SetMaxIdleConns(5)
-	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(1)
 	db.SetConnMaxIdleTime(time.Second * 30)
 
 	err = db.Ping()
@@ -706,5 +766,5 @@ func OpenDB_test() (*sql.DB, error) {
 	}
 
 	log.Printf("established connection to db")
-	return db.DB, nil
+	return db, nil
 }

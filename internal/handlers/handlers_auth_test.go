@@ -12,6 +12,7 @@ import (
 	"example.com/m/internal/auth"
 	"example.com/m/internal/cache"
 	"example.com/m/internal/dto"
+	"example.com/m/internal/repository"
 	"example.com/m/internal/testutil"
 	"github.com/google/uuid"
 )
@@ -371,6 +372,279 @@ func TestCartUnauthorized(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/cart/items", bytes.NewReader([]byte(`{"item":{"item":"x"}}`)))
 	req.Header.Set("Content-Type", "application/json")
 	handler := auth.AuthMiddleware(http.HandlerFunc(defHandler.AddToCart))
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestRegisterSuccess(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	payload, err := json.Marshal(dto.UserRegistration{
+		Email:    "user@example.com",
+		Password: "strong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	hash, err := repository.FindUserByEmail(db, "user@example.com")
+	if err != nil {
+		t.Fatalf("expected user created, got error: %v", err)
+	}
+	if !auth.CheckPassword("strong-pass", hash) {
+		t.Fatalf("expected stored password to match")
+	}
+}
+
+func TestRegisterInvalidJSON(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestRegisterMissingFields(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestRegisterInvalidDomain(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	payload, err := json.Marshal(dto.UserRegistration{
+		Email:    "user@invalid.com",
+		Password: "strong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestRegisterWeakPassword(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	payload, err := json.Marshal(dto.UserRegistration{
+		Email:    "user@example.com",
+		Password: "short",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestRegisterDuplicateEmail(t *testing.T) {
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db, AllowedDomains: []string{"example.com"}}
+
+	payload, err := json.Marshal(dto.UserRegistration{
+		Email:    "user@example.com",
+		Password: "strong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.RegisterHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+}
+
+func TestLoginSuccess(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db}
+
+	hash, err := auth.HashPassword("strong-pass")
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	if err := repository.CreateUser(db, dto.UserRegistration{Email: "user@example.com", Password: hash}); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	payload, err := json.Marshal(dto.UserCredentials{
+		Email:    "user@example.com",
+		Password: "strong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.LoginHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["token"] == "" || resp["token"] == nil {
+		t.Fatalf("expected token in response")
+	}
+	if resp["email"] != "user@example.com" {
+		t.Fatalf("expected email user@example.com, got %v", resp["email"])
+	}
+	if resp["role"] != "user" {
+		t.Fatalf("expected role user, got %v", resp["role"])
+	}
+}
+
+func TestLoginInvalidJSON(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.LoginHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestLoginUnknownUser(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db}
+
+	payload, err := json.Marshal(dto.UserCredentials{
+		Email:    "user@example.com",
+		Password: "strong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.LoginHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestLoginBadPassword(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db}
+
+	hash, err := auth.HashPassword("strong-pass")
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	if err := repository.CreateUser(db, dto.UserRegistration{Email: "user@example.com", Password: hash}); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	payload, err := json.Marshal(dto.UserCredentials{
+		Email:    "user@example.com",
+		Password: "wrong-pass",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.LoginHandler)
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestLoginMissingFields(t *testing.T) {
+	initAuthForTest(t)
+	db := setupTestDB(t)
+	defHandler := &Handler{DB: db}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	handler := http.HandlerFunc(defHandler.LoginHandler)
 	handler.ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusUnauthorized {
