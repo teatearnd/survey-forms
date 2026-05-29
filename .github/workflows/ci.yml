@@ -13,6 +13,30 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL_TEST: postgres://survey_app:survey_pass@localhost:5432/survey_forms_test?sslmode=disable
+      DATABASE_URL: postgres://survey_app:survey_pass@localhost:5432/survey_forms?sslmode=disable
+      REDIS_ADDRESS: localhost:6379
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: survey_app
+          POSTGRES_PASSWORD: survey_pass
+          POSTGRES_DB: survey_forms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U survey_app -d survey_forms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          -v ${{ github.workspace }}/docker/postgres-init.sql:/docker-entrypoint-initdb.d/postgres-init.sql:ro
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
 
     steps:
       - name: Checkout
