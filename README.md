@@ -40,10 +40,66 @@ Required for DB and JWT configuration:
 - `JWT_SECRET` — HMAC secret used to validate tokens
 - `JWT_ISSUER` — expected token issuer
 - `JWT_AUDIENCE` — expected token audience
+- `ALLOWED_EMAIL_DOMAINS` - comma-separated list of allowed registration domains
 
 Optional for Redis:
 
 - `REDIS_ADDRESS` — Redis server address (default: `localhost:6379`)
+
+- ### Register
+
+- `POST /register`
+- Body:
+
+```json
+{
+	"email": "user@example.com",
+	"password": "strongPassword123"
+}
+```
+
+- Validation rules:
+	- Email must be valid and its domain must be listed in `ALLOWED_EMAIL_DOMAINS`
+	- Password must be 8 to 72 characters long
+	- Password must contain ASCII characters only
+
+Successful registration returns HTTP 200 with an empty body.
+
+### Login
+
+- `POST /login`
+- Body:
+
+```json
+{
+	"email": "user@example.com",
+	"password": "strongPassword123"
+}
+```
+
+- Response example:
+
+```json
+{
+	"message": "logged in",
+	"token": "<jwt>",
+	"email": "user@example.com",
+	"user_id": "<uuid>",
+	"role": "user",
+	"expires": "2026-05-13T10:00:00Z"
+}
+```
+
+The token is valid for 12 hours and is signed with `JWT_SECRET`.
+
+Authentication
+--------------
+
+Send the JWT in the `Authorization` header when calling protected routes introduced in future revisions:
+
+```bash
+Authorization: Bearer <token>
+```
 
 
 Project structure
